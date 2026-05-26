@@ -16,7 +16,7 @@ const menuItems = [
   {
     path: '/operations',
     end: false,
-    label: 'สัญญาเช่าบริหาร',
+    label: 'สัญญาให้สิทธิเช่าบริหารและดำเนินกิจการระบบประปาสัตหีบ',
     icon: (
       <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -27,7 +27,7 @@ const menuItems = [
   {
     path: '/water-sales',
     end: false,
-    label: 'ขายน้ำให้ กปภ.สาขาพัทยา',
+    label: 'สัญญาซื้อขายน้ำประปาเพื่อกปภ.สาขาพัทยา(พ.)',
     icon: (
       <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
