@@ -12,7 +12,7 @@ export const LEASE_CONTRACT_START_YEAR  = 2544   // มี.ค. 2544 = ปีท
 export const LEASE_CONTRACT_TOTAL_YEARS = 30     // สัญญามี 30 ปี
 
 export const WATER_CONTRACT_START_YEAR  = 2548   // พ.ย. 2548 = ปีที่ 1
-export const WATER_CONTRACT_TOTAL_YEARS = 30     // ปรับได้ตามสัญญาจริง
+export const WATER_CONTRACT_TOTAL_YEARS = 26     // ปรับได้ตามสัญญาจริง
 
 // ── ชื่อเดือนภาษาไทย ─────────────────────────────────────
 export const MONTHS_TH_SHORT = [

@@ -82,7 +82,7 @@ export default function Login() {
         </div>
 
         <p className="text-center text-blue-500 text-xs mt-6">
-          การประปาส่วนภูมิภาค สาขาสัตหีบ
+          กิจการประปาสัตหีบ
         </p>
       </div>
     </div>
