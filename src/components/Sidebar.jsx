@@ -50,7 +50,7 @@ const menuItems = [
   {
     path: '/contracts',
     end: false,
-    label: 'รายละเอียดสัญญา',
+    label: 'สัญญา/คำสั่ง',
     icon: (
       <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}

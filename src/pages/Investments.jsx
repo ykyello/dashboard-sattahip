@@ -25,7 +25,6 @@ const COLOR = {
     badge:  'bg-blue-100 text-blue-700',
     border: 'border-l-blue-500',
     text:   'text-blue-700',
-    ring:   'ring-blue-200',
     dot:    'bg-blue-400',
   },
   emerald: {
@@ -33,7 +32,6 @@ const COLOR = {
     badge:  'bg-emerald-100 text-emerald-700',
     border: 'border-l-emerald-500',
     text:   'text-emerald-700',
-    ring:   'ring-emerald-200',
     dot:    'bg-emerald-400',
   },
 }
@@ -57,7 +55,6 @@ function pct(actual, contract) {
   return Math.min(100, (actual / contract) * 100)
 }
 
-// ── Progress bar ─────────────────────────────────────────
 function ProgressBar({ value, color }) {
   const c = COLOR[color]
   return (
@@ -70,7 +67,6 @@ function ProgressBar({ value, color }) {
   )
 }
 
-// ── Category Summary Card ─────────────────────────────────
 function CategoryCard({ cat, actual }) {
   const c       = COLOR[cat.color]
   const remain  = cat.contractAmount - actual
@@ -131,33 +127,33 @@ export default function Investments() {
   const [form,          setForm]          = useState(emptyForm)
   const [editId,        setEditId]        = useState(null)
   const [saving,        setSaving]        = useState(false)
+  const [saveError,     setSaveError]     = useState(null)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [filterCat,     setFilterCat]     = useState('all')
+  const [toast,         setToast]         = useState(null)
 
   useEffect(() => { fetchItems() }, [])
 
   async function fetchItems() {
     setLoading(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('investment_projects')
-      .select('*')
-      .order('invest_date', { ascending: false })
-    setItems(data || [])
+      .select('id, category_id, item_name, invest_date, amount, description, notes')
+      .order('invest_date', { ascending: false, nullsFirst: false })
+    if (!error) setItems(data || [])
     setLoading(false)
   }
 
-  // ── คำนวณยอดรวมแยกหมวด ───────────────────────────────
   function actualByCategory(catId) {
     return items
       .filter(r => r.category_id === catId)
       .reduce((s, r) => s + (Number(r.amount) || 0), 0)
   }
 
-  const totalActual   = items.reduce((s, r) => s + (Number(r.amount) || 0), 0)
-  const totalRemain   = TOTAL_CONTRACT - totalActual
-  const totalPercent  = pct(totalActual, TOTAL_CONTRACT)
+  const totalActual  = items.reduce((s, r) => s + (Number(r.amount) || 0), 0)
+  const totalRemain  = TOTAL_CONTRACT - totalActual
+  const totalPercent = pct(totalActual, TOTAL_CONTRACT)
 
-  // ── Form ─────────────────────────────────────────────
   function handleChange(e) {
     setForm(f => ({ ...f, [e.target.name]: e.target.value }))
   }
@@ -165,44 +161,64 @@ export default function Investments() {
   function openAdd() {
     setForm(emptyForm)
     setEditId(null)
+    setSaveError(null)
     setShowModal(true)
   }
 
   function openEdit(r) {
     setForm({
-      category_id:  r.category_id  ?? 'pipe',
-      item_name:    r.item_name    ?? r.project_name ?? '',
-      invest_date:  r.invest_date  ?? r.start_date   ?? '',
-      amount:       r.amount       ?? r.budget        ?? '',
-      description:  r.description  ?? '',
-      notes:        r.notes        ?? '',
+      category_id:  r.category_id  || 'pipe',
+      item_name:    r.item_name    || '',
+      invest_date:  r.invest_date  || '',
+      amount:       r.amount       != null ? String(r.amount) : '',
+      description:  r.description  || '',
+      notes:        r.notes        || '',
     })
     setEditId(r.id)
+    setSaveError(null)
     setShowModal(true)
   }
 
   async function handleSave(e) {
     e.preventDefault()
     setSaving(true)
+    setSaveError(null)
+
     const payload = {
       category_id:  form.category_id,
-      project_name: form.item_name,   // compat กับ column เดิม
       item_name:    form.item_name,
-      invest_date:  form.invest_date  || null,
-      start_date:   form.invest_date  || null,
+      project_name: form.item_name,           // compat column
+      invest_date:  form.invest_date || null,
+      start_date:   form.invest_date || null,  // compat column
       amount:       form.amount !== '' ? Number(form.amount) : null,
-      budget:       form.amount !== '' ? Number(form.amount) : null,
-      description:  form.description  || null,
-      notes:        form.notes        || null,
-      status:       'completed',      // default compat
+      budget:       form.amount !== '' ? Number(form.amount) : null, // compat column
+      description:  form.description || null,
+      notes:        form.notes       || null,
+      status:       'completed',               // compat column
     }
+
+    let error
     if (editId) {
-      await supabase.from('investment_projects').update(payload).eq('id', editId)
+      ;({ error } = await supabase
+        .from('investment_projects')
+        .update(payload)
+        .eq('id', editId))
     } else {
-      await supabase.from('investment_projects').insert([payload])
+      ;({ error } = await supabase
+        .from('investment_projects')
+        .insert([payload]))
     }
+
     setSaving(false)
+
+    if (error) {
+      setSaveError(error.message)
+      return
+    }
+
     setShowModal(false)
+    setToast(editId ? 'แก้ไขรายการสำเร็จ' : 'เพิ่มรายการสำเร็จ')
+    setTimeout(() => setToast(null), 2500)
     fetchItems()
   }
 
@@ -216,19 +232,24 @@ export default function Investments() {
     ? items
     : items.filter(r => r.category_id === filterCat)
 
-  // ─────────────────────────────────────────────────────
-  // RENDER
-  // ─────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
 
-      {/* ── Dashboard summary ─────────────────────────── */}
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-lg text-sm font-medium
+                        bg-green-50 border border-green-200 text-green-700 flex items-center gap-2">
+          ✓ {toast}
+        </div>
+      )}
+
+      {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'มูลค่าตามสัญญารวม',       value: fmt(TOTAL_CONTRACT),      unit: 'บาท', accent: 'text-slate-800' },
-          { label: 'มูลค่าลงทุนจริงรวม',       value: fmt(totalActual, 2),      unit: 'บาท', accent: 'text-blue-700'  },
-          { label: 'คงเหลือต้องลงทุนรวม',      value: fmt(Math.abs(totalRemain), 2), unit: totalRemain < 0 ? 'เกินวงเงิน' : 'บาท', accent: totalRemain < 0 ? 'text-red-600' : 'text-slate-700' },
-          { label: 'เปอร์เซ็นต์การลงทุนรวม',  value: totalPercent.toFixed(1) + '%', unit: 'ของวงเงินสัญญา', accent: 'text-emerald-700' },
+          { label: 'มูลค่าตามสัญญารวม',      value: fmt(TOTAL_CONTRACT),           unit: 'บาท',          accent: 'text-slate-800' },
+          { label: 'มูลค่าลงทุนจริงรวม',      value: fmt(totalActual, 2),           unit: 'บาท',          accent: 'text-blue-700'  },
+          { label: 'คงเหลือต้องลงทุนรวม',     value: fmt(Math.abs(totalRemain), 2), unit: totalRemain < 0 ? 'เกินวงเงิน' : 'บาท', accent: totalRemain < 0 ? 'text-red-600' : 'text-slate-700' },
+          { label: 'เปอร์เซ็นต์การลงทุนรวม', value: totalPercent.toFixed(1) + '%', unit: 'ของวงเงินสัญญา', accent: 'text-emerald-700' },
         ].map((c, i) => (
           <div key={i} className="bg-white rounded-xl border border-slate-200 p-4">
             <p className="text-xs text-slate-500 mb-1 leading-tight">{c.label}</p>
@@ -255,25 +276,21 @@ export default function Investments() {
         </p>
       </div>
 
-      {/* ── Category Cards ────────────────────────────── */}
+      {/* Category Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {INVESTMENT_CATEGORIES.map(cat => (
-          <CategoryCard
-            key={cat.id}
-            cat={cat}
-            actual={actualByCategory(cat.id)}
-          />
+          <CategoryCard key={cat.id} cat={cat} actual={actualByCategory(cat.id)} />
         ))}
       </div>
 
-      {/* ── รายการลงทุน ───────────────────────────────── */}
+      {/* รายการลงทุน */}
       <div>
-        {/* Toolbar */}
         <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
           <div className="flex gap-2 flex-wrap">
             {[
-              { id: 'all',   label: 'ทั้งหมด' },
-              ...INVESTMENT_CATEGORIES.map(c => ({ id: c.id, label: c.label.substring(0, 20) + '…' })),
+              { id: 'all', label: 'ทั้งหมด' },
+              { id: 'pipe',  label: 'ท่อจำหน่ายน้ำ' },
+              { id: 'scada', label: 'SCADA' },
             ].map(f => (
               <button
                 key={f.id}
@@ -300,7 +317,6 @@ export default function Investments() {
           </button>
         </div>
 
-        {/* Table */}
         {loading ? (
           <div className="flex items-center justify-center h-40 bg-white rounded-xl border border-slate-200">
             <p className="text-slate-400 text-sm">กำลังโหลด...</p>
@@ -309,9 +325,7 @@ export default function Investments() {
           <div className="flex flex-col items-center justify-center h-40 gap-2
                           bg-white rounded-xl border border-slate-200">
             <p className="text-slate-400 text-sm">ยังไม่มีรายการลงทุน</p>
-            <button onClick={openAdd} className="text-blue-600 text-sm underline">
-              เพิ่มรายการแรก
-            </button>
+            <button onClick={openAdd} className="text-blue-600 text-sm underline">เพิ่มรายการแรก</button>
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -320,9 +334,8 @@ export default function Investments() {
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
                     {['หมวด','รายการลงทุน','วันที่','มูลค่า (บาท)','รายละเอียด','จัดการ'].map(h => (
-                      <th key={h}
-                        className="px-4 py-3 text-left text-xs font-medium text-slate-500
-                                   uppercase tracking-wide whitespace-nowrap">
+                      <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-500
+                                             uppercase tracking-wide whitespace-nowrap">
                         {h}
                       </th>
                     ))}
@@ -344,13 +357,13 @@ export default function Investments() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-slate-800 font-medium max-w-xs">
-                          <p className="truncate">{r.item_name || r.project_name || '—'}</p>
+                          <p className="truncate">{r.item_name || '—'}</p>
                         </td>
                         <td className="px-4 py-3 text-slate-500 whitespace-nowrap text-xs">
-                          {r.invest_date || r.start_date || '—'}
+                          {r.invest_date || '—'}
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-slate-700 whitespace-nowrap">
-                          {fmt(r.amount ?? r.budget, 2)}
+                          {fmt(r.amount, 2)}
                         </td>
                         <td className="px-4 py-3 text-slate-500 text-xs max-w-xs">
                           <p className="truncate">{r.description || '—'}</p>
@@ -383,14 +396,13 @@ export default function Investments() {
                     )
                   })}
                 </tbody>
-                {/* Footer รวม */}
                 <tfoot className="border-t-2 border-slate-200 bg-slate-50">
                   <tr>
                     <td colSpan={3} className="px-4 py-3 text-xs font-semibold text-slate-600">
                       รวม {filtered.length} รายการ
                     </td>
                     <td className="px-4 py-3 text-right font-bold text-slate-800 whitespace-nowrap">
-                      {fmt(filtered.reduce((s, r) => s + (Number(r.amount ?? r.budget) || 0), 0), 2)} บาท
+                      {fmt(filtered.reduce((s, r) => s + (Number(r.amount) || 0), 0), 2)} บาท
                     </td>
                     <td colSpan={2} />
                   </tr>
@@ -401,7 +413,7 @@ export default function Investments() {
         )}
       </div>
 
-      {/* ── Modal เพิ่ม/แก้ไข ──────────────────────────── */}
+      {/* Modal เพิ่ม/แก้ไข */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
@@ -418,7 +430,13 @@ export default function Investments() {
 
             <form onSubmit={handleSave} className="px-6 py-5 space-y-4">
 
-              {/* หมวดการลงทุน */}
+              {/* error */}
+              {saveError && (
+                <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
+                  ⚠ {saveError}
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs text-slate-500 mb-1">หมวดการลงทุน *</label>
                 <select
@@ -434,7 +452,6 @@ export default function Investments() {
                 </select>
               </div>
 
-              {/* รายการลงทุน */}
               <div>
                 <label className="block text-xs text-slate-500 mb-1">รายการลงทุน *</label>
                 <input
@@ -450,7 +467,6 @@ export default function Investments() {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                {/* วันที่ดำเนินการ */}
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">วันที่ดำเนินการ</label>
                   <input
@@ -462,8 +478,6 @@ export default function Investments() {
                                focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
-
-                {/* มูลค่าเงินลงทุน */}
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">มูลค่าเงินลงทุน (บาท) *</label>
                   <input
@@ -471,6 +485,7 @@ export default function Investments() {
                     name="amount"
                     required
                     step="any"
+                    min="0"
                     value={form.amount}
                     onChange={handleChange}
                     placeholder="0.00"
@@ -480,7 +495,6 @@ export default function Investments() {
                 </div>
               </div>
 
-              {/* รายละเอียด */}
               <div>
                 <label className="block text-xs text-slate-500 mb-1">รายละเอียด</label>
                 <textarea
@@ -493,7 +507,6 @@ export default function Investments() {
                 />
               </div>
 
-              {/* หมายเหตุ */}
               <div>
                 <label className="block text-xs text-slate-500 mb-1">หมายเหตุ</label>
                 <input
@@ -529,7 +542,7 @@ export default function Investments() {
         </div>
       )}
 
-      {/* ── Modal ยืนยันลบ ─────────────────────────────── */}
+      {/* Modal ยืนยันลบ */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
@@ -554,6 +567,7 @@ export default function Investments() {
           </div>
         </div>
       )}
+
     </div>
   )
 }
