@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import {
-  // Lease contract
   getLeaseContractYearRange,
   getCurrentLeaseContractYearNo,
   getLeaseContractLabel,
@@ -25,7 +24,23 @@ const MONTHS_TH = [
   'ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.',
 ]
 
-// ── 17 หัวข้อรายงาน แบ่ง 4 กลุ่ม ────────────────────────
+// หัวคอลัมน์ตารางโหมดปีสัญญา (มี.ค.–ก.พ.)
+const MONTHS_LEASE_ORDER = [
+  { label: 'มี.ค.', month: 3 },
+  { label: 'เม.ย.', month: 4 },
+  { label: 'พ.ค.',  month: 5 },
+  { label: 'มิ.ย.', month: 6 },
+  { label: 'ก.ค.',  month: 7 },
+  { label: 'ส.ค.',  month: 8 },
+  { label: 'ก.ย.',  month: 9 },
+  { label: 'ต.ค.',  month: 10 },
+  { label: 'พ.ย.',  month: 11 },
+  { label: 'ธ.ค.',  month: 12 },
+  { label: 'ม.ค.',  month: 1 },
+  { label: 'ก.พ.',  month: 2 },
+]
+
+// ── หัวข้อรายงาน แบ่งกลุ่ม ────────────────────────
 const REPORT_GROUPS = [
   {
     group: 'ปริมาณน้ำ',
@@ -45,7 +60,7 @@ const REPORT_GROUPS = [
       { id: 'rev_local',   label: 'รายได้ค่าน้ำในพื้นที่',     unit: 'บาท' },
       { id: 'discount',    label: 'หักส่วนลด',                 unit: 'บาท' },
       { id: 'service_fee', label: 'ค่าบริการ',                 unit: 'บาท' },
-      { id: 'rev_net',     label: 'รายได้สุทธิ',    unit: 'บาท' },
+      { id: 'rev_net',     label: 'รายได้สุทธิ',               unit: 'บาท' },
     ],
   },
   {
@@ -53,7 +68,7 @@ const REPORT_GROUPS = [
     color: 'amber',
     items: [
       { id: 'benefit_rent', label: 'ผลประโยชน์ เช่าบริหาร (รายได้สุทธิ 7%)', unit: 'บาท' },
-      { id: 'benefit',      label: 'ผลประโยชน์ขายน้ำให้กปภ.สาขาพัทยา(พ.)(0.01%)',               unit: 'บาท' },
+      { id: 'benefit',      label: 'ผลประโยชน์ขายน้ำให้กปภ.สาขาพัทยา(พ.)(0.01%)', unit: 'บาท' },
       { id: 'benefit_net',  label: 'ผลประโยชน์สุทธิ (กปภ.)',   unit: 'บาท' },
     ],
   },
@@ -78,24 +93,27 @@ const REPORT_GROUPS = [
     group: 'ข้อร้องเรียน',
     color: 'rose',
     items: [
-      { id: 'cmp_water_qty',    label: 'ด้านปริมาณน้ำ',     unit: 'เรื่อง' },
-      { id: 'cmp_pipe_small',   label: 'ท่อแตก <50 มม.',    unit: 'เรื่อง' },
-      { id: 'cmp_pipe_large',   label: 'ท่อแตก >50 มม.',    unit: 'เรื่อง' },
-      { id: 'cmp_water_qual',   label: 'ด้านคุณภาพน้ำ',     unit: 'เรื่อง' },
-      { id: 'cmp_total',        label: 'รวมข้อร้องเรียน',   unit: 'เรื่อง' },
+      { id: 'cmp_water_qty',  label: 'ด้านปริมาณน้ำ',     unit: 'เรื่อง' },
+      { id: 'cmp_pipe_small', label: 'ท่อแตก <50 มม.',    unit: 'เรื่อง' },
+      { id: 'cmp_pipe_large', label: 'ท่อแตก >50 มม.',    unit: 'เรื่อง' },
+      { id: 'cmp_water_qual', label: 'ด้านคุณภาพน้ำ',     unit: 'เรื่อง' },
+      { id: 'cmp_total',      label: 'รวมข้อร้องเรียน',   unit: 'เรื่อง' },
     ],
   },
 ]
 
 const ALL_ITEMS = REPORT_GROUPS.flatMap(g => g.items)
 
-// ── แปลง rows จาก Supabase → yearData object (key → array[12]) ──
-function rowsToYearData(rows) {
-  const data = Object.fromEntries(ALL_ITEMS.map(k => [k.id, Array(12).fill(null)]))
+// ── แปลง rows จาก Supabase → yearData object ──────────
+// โหมดปฏิทิน: key = month index 0–11 (ม.ค.=0)
+// โหมดสัญญา:  key = month number 1–12 ตรงๆ
+function rowsToYearData(rows, mode) {
+  const data = Object.fromEntries(ALL_ITEMS.map(k => [k.id, {}]))
   rows.forEach(row => {
-    const idx = row.month - 1
     ALL_ITEMS.forEach(({ id }) => {
-      if (row[id] !== undefined && row[id] !== null) data[id][idx] = Number(row[id])
+      if (row[id] !== undefined && row[id] !== null) {
+        data[id][row.month] = Number(row[id])
+      }
     })
   })
   return data
@@ -105,12 +123,18 @@ function rowsToYearData(rows) {
 const AVG_IDS     = ['loss_total', 'loss_dist', 'usage_rate']
 const LASTVAL_IDS = ['users_total']
 
-function computeTotal(arr, id) {
-  const vals = arr.filter(v => v !== null && v !== undefined)
-  if (vals.length === 0) return null
-  if (AVG_IDS.includes(id))     return vals.reduce((a, b) => a + b, 0) / vals.length
-  if (LASTVAL_IDS.includes(id)) return vals[vals.length - 1]
-  return vals.reduce((a, b) => a + b, 0)
+function computeTotal(vals) {
+  const filtered = vals.filter(v => v !== null && v !== undefined)
+  if (filtered.length === 0) return null
+  return filtered.reduce((a, b) => a + b, 0)
+}
+
+function computeTotalById(vals, id) {
+  const filtered = vals.filter(v => v !== null && v !== undefined)
+  if (filtered.length === 0) return null
+  if (AVG_IDS.includes(id))     return filtered.reduce((a, b) => a + b, 0) / filtered.length
+  if (LASTVAL_IDS.includes(id)) return filtered[filtered.length - 1]
+  return filtered.reduce((a, b) => a + b, 0)
 }
 
 function fmtNum(v, unit, compact = false) {
@@ -131,7 +155,7 @@ const GROUP_STYLE = {
 }
 
 // ─────────────────────────────────────────────────────────
-// COMPONENTS (ใหม่)
+// COMPONENTS
 // ─────────────────────────────────────────────────────────
 
 function NoData() {
@@ -143,10 +167,11 @@ function NoData() {
   )
 }
 
-function ReportKpiCard({ item, monthlyData, color }) {
-  const total   = computeTotal(monthlyData, item.id)
-  const hasData = monthlyData.some(v => v !== null)
-  const filled  = monthlyData.filter(v => v !== null).length
+// KPI Card — รับ array ของค่า (ไม่สนลำดับ)
+function ReportKpiCard({ item, vals, color }) {
+  const total   = computeTotalById(vals, item.id)
+  const hasData = vals.some(v => v !== null && v !== undefined)
+  const filled  = vals.filter(v => v !== null && v !== undefined).length
   const s       = GROUP_STYLE[color]
   return (
     <div className={`rounded-xl p-4 border border-slate-200 bg-white border-l-4 ${s.border}`}>
@@ -165,7 +190,8 @@ function ReportKpiCard({ item, monthlyData, color }) {
   )
 }
 
-function ReportTable({ yearData }) {
+// ตารางรายเดือน — รับ monthCols (ordered array of {label,month}) และ yearData map
+function ReportTable({ monthCols, yearData }) {
   return (
     <div className="space-y-5">
       {REPORT_GROUPS.map(group => {
@@ -184,9 +210,9 @@ function ReportTable({ yearData }) {
                       รายการ
                     </th>
                     <th className="px-3 py-3 text-center font-medium text-slate-400 w-16">หน่วย</th>
-                    {MONTHS_TH.map(m => (
-                      <th key={m} className="px-2 py-3 text-center font-medium text-slate-500 whitespace-nowrap">
-                        {m}
+                    {monthCols.map(col => (
+                      <th key={col.month} className="px-2 py-3 text-center font-medium text-slate-500 whitespace-nowrap">
+                        {col.label}
                       </th>
                     ))}
                     <th className="px-3 py-3 text-center font-medium text-blue-600 whitespace-nowrap">
@@ -196,8 +222,9 @@ function ReportTable({ yearData }) {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {group.items.map((item, idx) => {
-                    const monthly = yearData[item.id] ?? Array(12).fill(null)
-                    const total   = computeTotal(monthly, item.id)
+                    const dataMap = yearData[item.id] ?? {}
+                    const orderedVals = monthCols.map(col => dataMap[col.month] ?? null)
+                    const total = computeTotalById(orderedVals, item.id)
                     return (
                       <tr
                         key={item.id}
@@ -207,7 +234,7 @@ function ReportTable({ yearData }) {
                           {item.label}
                         </td>
                         <td className="px-3 py-2.5 text-center text-slate-400">{item.unit}</td>
-                        {monthly.map((val, i) => (
+                        {orderedVals.map((val, i) => (
                           <td key={i} className="px-2 py-2.5 text-center text-slate-600">
                             {val !== null
                               ? fmtNum(val, item.unit)
@@ -236,19 +263,23 @@ function ReportTable({ yearData }) {
 // MAIN DASHBOARD
 // ─────────────────────────────────────────────────────────
 export default function Dashboard() {
-  // ── state ────────────────────────────────────────────
   const [reportTab,      setReportTab]      = useState('kpi')
-  const [reportMode,     setReportMode]     = useState('calendar')
+  const [reportMode,     setReportMode]     = useState('calendar')   // 'calendar' | 'lease'
   const [calendarYear,   setCalendarYear]   = useState(REPORT_DEFAULT_YEAR)
   const [reportLeaseNo,  setReportLeaseNo]  = useState(getCurrentLeaseContractYearNo)
-  const [reportYearData, setReportYearData] = useState(null)
+  const [yearData,       setYearData]       = useState({})
   const [reportLoading,  setReportLoading]  = useState(false)
 
-  // ── fetch report data รองรับทั้ง 2 mode ───────────────
+  // monthCols ที่ใช้แสดงหัวตาราง ตามโหมด
+  const monthCols = reportMode === 'calendar'
+    ? MONTHS_TH.map((label, i) => ({ label, month: i + 1 }))
+    : MONTHS_LEASE_ORDER
+
   useEffect(() => {
     async function fetchReportData() {
       setReportLoading(true)
       let rows = []
+
       if (reportMode === 'calendar') {
         const { data } = await supabase
           .from('annual_report_data')
@@ -268,96 +299,160 @@ export default function Dashboard() {
           .order('year').order('month')
         rows = (data || []).filter(r => keySet.has(`${r.year}-${r.month}`))
       }
-      setReportYearData(rows.length > 0 ? rowsToYearData(rows) : rowsToYearData([]))
+
+      setYearData(rowsToYearData(rows, reportMode))
       setReportLoading(false)
     }
     fetchReportData()
   }, [calendarYear, reportLeaseNo, reportMode])
 
-  const yearData = reportYearData ?? rowsToYearData([])
-
-  // ─────────────────────────────────────────────────────
-  // RENDER
-  // ─────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
       <div className="pt-0">
 
-            {/* Controls */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between mb-4">
-              {/* Tab toggle */}
-              <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs w-fit">
-                <button
-                  onClick={() => setReportTab('kpi')}
-                  className={`px-3 py-2 transition-colors ${
-                    reportTab === 'kpi'
-                      ? 'bg-blue-600 text-white font-medium'
-                      : 'bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  ภาพรวม KPI
-                </button>
-                <button
-                  onClick={() => setReportTab('table')}
-                  className={`px-3 py-2 border-l border-slate-200 transition-colors ${
-                    reportTab === 'table'
-                      ? 'bg-blue-600 text-white font-medium'
-                      : 'bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  ตารางรายเดือน
-                </button>
-              </div>
+        {/* ── Controls ── */}
+        <div className="flex flex-col gap-3 mb-4">
 
-              {/* Year dropdown — style เดียวกับ fiscalYear dropdown */}
-              <select
-                value={calendarYear}
-                onChange={e => setCalendarYear(Number(e.target.value))}
-                className="text-sm px-3 py-2 rounded-lg border border-slate-200 bg-white
-                           text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-fit"
+          {/* แถวบน: KPI/ตาราง toggle + mode toggle + dropdown */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+
+            {/* ซ้าย: KPI / ตารางรายเดือน */}
+            <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs w-fit">
+              <button
+                onClick={() => setReportTab('kpi')}
+                className={`px-3 py-2 transition-colors ${
+                  reportTab === 'kpi'
+                    ? 'bg-blue-600 text-white font-medium'
+                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
               >
-                {CALENDAR_YEARS.map(y => (
-                  <option key={y} value={y}>ปี พ.ศ. {y}</option>
-                ))}
-              </select>
+                ภาพรวม KPI
+              </button>
+              <button
+                onClick={() => setReportTab('table')}
+                className={`px-3 py-2 border-l border-slate-200 transition-colors ${
+                  reportTab === 'table'
+                    ? 'bg-blue-600 text-white font-medium'
+                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                ตารางรายเดือน
+              </button>
             </div>
 
-            {/* KPI Cards — แบ่งตามกลุ่ม */}
-            {reportLoading ? (
-              <div className="flex items-center justify-center h-32">
-                <p className="text-slate-400 text-sm">กำลังโหลดข้อมูล...</p>
-              </div>
-            ) : reportTab === 'kpi' && (
-              <div className="space-y-5">
-                {REPORT_GROUPS.map(group => {
-                  const s = GROUP_STYLE[group.color]
-                  return (
-                    <div key={group.group}>
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className={`w-2.5 h-2.5 rounded-full ${s.dot}`} />
-                        <p className="text-xs font-semibold text-slate-600">{group.group}</p>
-                        <div className="flex-1 h-px bg-slate-100" />
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                        {group.items.map(item => (
-                          <ReportKpiCard
-                            key={item.id}
-                            item={item}
-                            monthlyData={yearData[item.id] ?? Array(12).fill(null)}
-                            color={group.color}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+            {/* ขวา: mode toggle + dropdown */}
+            <div className="flex items-center gap-2 flex-wrap">
 
-            {/* Monthly Table */}
-            {!reportLoading && reportTab === 'table' && (
-              <ReportTable yearData={yearData} />
-            )}
+              {/* ปีปฏิทิน / ปีสัญญา */}
+              <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs">
+                <button
+                  onClick={() => setReportMode('calendar')}
+                  className={`px-3 py-2 transition-colors ${
+                    reportMode === 'calendar'
+                      ? 'bg-slate-700 text-white font-medium'
+                      : 'bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  ปีปฏิทิน
+                </button>
+                <button
+                  onClick={() => setReportMode('lease')}
+                  className={`px-3 py-2 border-l border-slate-200 transition-colors ${
+                    reportMode === 'lease'
+                      ? 'bg-slate-700 text-white font-medium'
+                      : 'bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  ปีสัญญา
+                </button>
+              </div>
+
+              {/* dropdown ปีปฏิทิน */}
+              {reportMode === 'calendar' && (
+                <select
+                  value={calendarYear}
+                  onChange={e => setCalendarYear(Number(e.target.value))}
+                  className="text-sm px-3 py-2 rounded-lg border border-slate-200 bg-white
+                             text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-fit"
+                >
+                  {CALENDAR_YEARS.map(y => (
+                    <option key={y} value={y}>ปี พ.ศ. {y}</option>
+                  ))}
+                </select>
+              )}
+
+              {/* dropdown ปีสัญญา */}
+              {reportMode === 'lease' && (
+                <select
+                  value={reportLeaseNo}
+                  onChange={e => setReportLeaseNo(Number(e.target.value))}
+                  className="text-sm px-3 py-2 rounded-lg border border-slate-200 bg-white
+                             text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-fit"
+                >
+                  {REPORT_LEASE_OPTIONS.map(yn => (
+                    <option key={yn} value={yn}>{getLeaseContractLabel(yn)}</option>
+                  ))}
+                </select>
+              )}
+
+            </div>
+          </div>
+
+          {/* badge แสดงว่าดูโหมดไหน */}
+          <div className="flex items-center gap-2">
+            <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium ${
+              reportMode === 'calendar'
+                ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                : 'bg-slate-100 text-slate-600 border border-slate-200'
+            }`}>
+              {reportMode === 'calendar'
+                ? `📅 ปีปฏิทิน พ.ศ. ${calendarYear} (ม.ค. – ธ.ค.)`
+                : `📋 ${getLeaseContractLabel(reportLeaseNo)} (มี.ค. – ก.พ.)`}
+            </span>
+          </div>
+
+        </div>
+
+        {/* ── KPI Cards ── */}
+        {reportLoading ? (
+          <div className="flex items-center justify-center h-32">
+            <p className="text-slate-400 text-sm">กำลังโหลดข้อมูล...</p>
+          </div>
+        ) : reportTab === 'kpi' && (
+          <div className="space-y-5">
+            {REPORT_GROUPS.map(group => {
+              const s = GROUP_STYLE[group.color]
+              return (
+                <div key={group.group}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className={`w-2.5 h-2.5 rounded-full ${s.dot}`} />
+                    <p className="text-xs font-semibold text-slate-600">{group.group}</p>
+                    <div className="flex-1 h-px bg-slate-100" />
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                    {group.items.map(item => {
+                      const dataMap = yearData[item.id] ?? {}
+                      const vals = Object.values(dataMap)
+                      return (
+                        <ReportKpiCard
+                          key={item.id}
+                          item={item}
+                          vals={vals}
+                          color={group.color}
+                        />
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ── ตารางรายเดือน ── */}
+        {!reportLoading && reportTab === 'table' && (
+          <ReportTable monthCols={monthCols} yearData={yearData} />
+        )}
 
       </div>
     </div>
