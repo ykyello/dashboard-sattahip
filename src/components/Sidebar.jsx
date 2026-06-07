@@ -6,6 +6,7 @@ const menuItems = [
     path: '/',
     end: true,
     label: 'Dashboard',
+    adminOnly: false,
     icon: (
       <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -17,6 +18,7 @@ const menuItems = [
     path: '/operations',
     end: false,
     label: 'สัญญาให้สิทธิเช่าบริหารและดำเนินกิจการระบบประปาสัตหีบ',
+    adminOnly: false,
     icon: (
       <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -28,6 +30,7 @@ const menuItems = [
     path: '/water-sales',
     end: false,
     label: 'สัญญาซื้อขายน้ำประปาเพื่อกปภ.สาขาพัทยา(พ.)',
+    adminOnly: false,
     icon: (
       <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -39,6 +42,7 @@ const menuItems = [
     path: '/investments',
     end: false,
     label: 'การลงทุนตามสัญญา',
+    adminOnly: false,
     icon: (
       <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -50,6 +54,7 @@ const menuItems = [
     path: '/contracts',
     end: false,
     label: 'รายละเอียดสัญญา',
+    adminOnly: false,
     icon: (
       <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -58,9 +63,23 @@ const menuItems = [
     ),
   },
   {
+    path: '/assets',
+    end: false,
+    label: 'บัญชีรายการทรัพย์สิน',
+    adminOnly: false,
+    icon: (
+      <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+          d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+      </svg>
+    ),
+  },
+  // ── admin only ──────────────────────────────────────────
+  {
     path: '/annual-report',
     end: false,
     label: 'บันทึกผลดำเนินงาน',
+    adminOnly: true,
     icon: (
       <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -69,20 +88,10 @@ const menuItems = [
     ),
   },
   {
-    path: '/assets',
-    end: false,
-    label: 'บัญชีรายการทรัพย์สิน',
-    icon: (
-      <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-          d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-      </svg>
-    ),
-  },
-  {
     path: '/asset-categories',
     end: false,
     label: 'จัดการประเภททรัพย์สิน',
+    adminOnly: true,
     icon: (
       <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -92,21 +101,21 @@ const menuItems = [
   },
 ]
 
-// ── props: open (bool), onClose (fn), onToggle (fn) ──────
-export default function Sidebar({ open, onClose }) {
+// ── props: open, onClose, onToggle, role ─────────────────
+export default function Sidebar({ open, onClose, role }) {
   const navigate = useNavigate()
+  const isGuest  = role === 'guest'
 
   async function handleLogout() {
     await supabase.auth.signOut()
     navigate('/login')
   }
 
+  // กรองเมนูตาม role
+  const visibleItems = menuItems.filter(item => !(isGuest && item.adminOnly))
+
   return (
     <>
-      {/*
-        Mobile  : fixed overlay, slide in/out ด้วย translate
-        Desktop : static, ย่อ/ขยายด้วย width
-      */}
       <aside
         className={`
           fixed md:static inset-y-0 left-0 z-30
@@ -134,13 +143,12 @@ export default function Sidebar({ open, onClose }) {
         {/* ── Navigation ── */}
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto overflow-x-hidden">
           <p className="text-blue-600 text-xs px-2 mb-2 tracking-widest uppercase whitespace-nowrap">เมนู</p>
-          {menuItems.map(item => (
+          {visibleItems.map(item => (
             <NavLink
               key={item.path}
               to={item.path}
               end={item.end}
               onClick={() => {
-                // ปิด sidebar หลังคลิกเมนูบน mobile
                 if (window.innerWidth < 768) onClose()
               }}
               className={({ isActive }) =>

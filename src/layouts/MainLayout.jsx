@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Routes, Route, useLocation } from 'react-router-dom'
+import { Routes, Route, useLocation, Navigate } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import Dashboard       from '../pages/Dashboard'
 import Operations      from '../pages/Operations'
@@ -21,20 +21,21 @@ const pageTitles = {
   '/asset-categories': 'จัดการประเภททรัพย์สิน',
 }
 
-export default function MainLayout() {
+// เส้นทางที่ guest เข้าไม่ได้
+const ADMIN_ONLY_PATHS = ['/annual-report', '/asset-categories']
+
+export default function MainLayout({ role }) {
   const location = useLocation()
   const title = pageTitles[location.pathname] || 'Dashboard'
+  const isGuest = role === 'guest'
 
   // ── Sidebar state ─────────────────────────────────────
-  // Desktop: เริ่มแบบกาง (true), Mobile: เริ่มแบบซ่อน (false)
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768)
 
-  // ปิด sidebar อัตโนมัติเมื่อเปลี่ยนหน้าบน mobile
   useEffect(() => {
     if (window.innerWidth < 768) setSidebarOpen(false)
   }, [location.pathname])
 
-  // ปรับ default เมื่อ resize หน้าต่าง
   useEffect(() => {
     function handleResize() {
       if (window.innerWidth >= 768) setSidebarOpen(true)
@@ -42,6 +43,11 @@ export default function MainLayout() {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+  // ── Guard: guest พยายามเข้าหน้า admin-only → redirect ──
+  if (isGuest && ADMIN_ONLY_PATHS.includes(location.pathname)) {
+    return <Navigate to="/" replace />
+  }
 
   return (
     <div className="flex min-h-screen bg-slate-100">
@@ -59,6 +65,7 @@ export default function MainLayout() {
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onToggle={() => setSidebarOpen(v => !v)}
+        role={role}
       />
 
       {/* ── Main area ── */}
@@ -67,19 +74,16 @@ export default function MainLayout() {
         {/* Header */}
         <header className="bg-white border-b border-slate-200 px-4 py-4 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
-            {/* Hamburger — mobile / collapse toggle — desktop */}
             <button
               onClick={() => setSidebarOpen(v => !v)}
               className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
               aria-label="toggle sidebar"
             >
               {sidebarOpen ? (
-                /* X icon */
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               ) : (
-                /* Hamburger icon */
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
@@ -95,10 +99,22 @@ export default function MainLayout() {
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="text-slate-500 text-xs hidden sm:block">ผู้ดูแลระบบ</span>
-            <div className="w-8 h-8 bg-blue-900 rounded-full flex items-center justify-center">
-              <span className="text-white text-xs font-medium">AD</span>
-            </div>
+            {/* Badge แสดง role */}
+            {isGuest ? (
+              <>
+                <span className="text-slate-500 text-xs hidden sm:block">ผู้เยี่ยมชม</span>
+                <div className="w-8 h-8 bg-slate-400 rounded-full flex items-center justify-center">
+                  <span className="text-white text-xs font-medium">GS</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <span className="text-slate-500 text-xs hidden sm:block">ผู้ดูแลระบบ</span>
+                <div className="w-8 h-8 bg-blue-900 rounded-full flex items-center justify-center">
+                  <span className="text-white text-xs font-medium">AD</span>
+                </div>
+              </>
+            )}
           </div>
         </header>
 

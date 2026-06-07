@@ -29,6 +29,10 @@ export default function App() {
     )
   }
 
+  // เช็ค role จาก email (admin@1107.pwa = admin, อื่นๆ = guest)
+  const ADMIN_EMAIL = 'admin@1107.pwa'
+  const role = session?.user?.email === ADMIN_EMAIL ? 'admin' : 'guest'
+
   return (
     <BrowserRouter>
       <Routes>
@@ -38,7 +42,11 @@ export default function App() {
         />
         <Route
           path="/*"
-          element={session ? <MainLayout /> : <Navigate to="/login" replace />}
+          element={
+            session
+              ? <MainLayout role={role} />
+              : <Navigate to="/login" replace />
+          }
         />
       </Routes>
     </BrowserRouter>
