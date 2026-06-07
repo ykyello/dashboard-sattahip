@@ -68,7 +68,6 @@ const menuItems = [
       </svg>
     ),
   },
-  // ── เพิ่มใหม่ ──────────────────────────────────────────
   {
     path: '/assets',
     end: false,
@@ -93,7 +92,8 @@ const menuItems = [
   },
 ]
 
-export default function Sidebar() {
+// ── props: open (bool), onClose (fn), onToggle (fn) ──────
+export default function Sidebar({ open, onClose }) {
   const navigate = useNavigate()
 
   async function handleLogout() {
@@ -102,60 +102,78 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="w-56 min-h-screen bg-blue-950 flex flex-col flex-shrink-0">
-
-      {/* Logo */}
-      <div className="px-4 py-5 border-b border-blue-900">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-blue-800 rounded-xl flex items-center justify-center flex-shrink-0 border border-blue-700">
-            <svg className="w-5 h-5 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M12 2c0 0-8 6-8 11a8 8 0 0016 0c0-5-8-11-8-11z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-white text-xs font-medium leading-tight">กิจการประปา</p>
-            <p className="text-blue-400 text-xs">สัตหีบ</p>
+    <>
+      {/*
+        Mobile  : fixed overlay, slide in/out ด้วย translate
+        Desktop : static, ย่อ/ขยายด้วย width
+      */}
+      <aside
+        className={`
+          fixed md:static inset-y-0 left-0 z-30
+          flex flex-col bg-blue-950
+          transition-all duration-300 ease-in-out
+          ${open ? 'w-64 translate-x-0' : 'w-64 -translate-x-full md:w-0 md:translate-x-0 md:overflow-hidden'}
+        `}
+      >
+        {/* ── Logo ── */}
+        <div className="px-4 py-5 border-b border-blue-900 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-blue-800 rounded-xl flex items-center justify-center flex-shrink-0 border border-blue-700">
+              <svg className="w-5 h-5 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M12 2c0 0-8 6-8 11a8 8 0 0016 0c0-5-8-11-8-11z" />
+              </svg>
+            </div>
+            <div className="whitespace-nowrap overflow-hidden">
+              <p className="text-white text-xs font-medium leading-tight">กิจการประปา</p>
+              <p className="text-blue-400 text-xs">สัตหีบ</p>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        <p className="text-blue-600 text-xs px-2 mb-2 tracking-widest uppercase">เมนู</p>
-        {menuItems.map(item => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            end={item.end}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors duration-150 ${
-                isActive
-                  ? 'bg-blue-700 text-white'
-                  : 'text-blue-300 hover:bg-blue-900 hover:text-white'
-              }`
-            }
+        {/* ── Navigation ── */}
+        <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto overflow-x-hidden">
+          <p className="text-blue-600 text-xs px-2 mb-2 tracking-widest uppercase whitespace-nowrap">เมนู</p>
+          {menuItems.map(item => (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              end={item.end}
+              onClick={() => {
+                // ปิด sidebar หลังคลิกเมนูบน mobile
+                if (window.innerWidth < 768) onClose()
+              }}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors duration-150 ${
+                  isActive
+                    ? 'bg-blue-700 text-white'
+                    : 'text-blue-300 hover:bg-blue-900 hover:text-white'
+                }`
+              }
+            >
+              {item.icon}
+              <span className="leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
+                {item.label}
+              </span>
+            </NavLink>
+          ))}
+        </nav>
+
+        {/* ── Logout ── */}
+        <div className="px-3 py-4 border-t border-blue-900 flex-shrink-0">
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm
+                       text-blue-400 hover:bg-blue-900 hover:text-red-400 transition-colors duration-150"
           >
-            {item.icon}
-            <span className="leading-tight">{item.label}</span>
-          </NavLink>
-        ))}
-      </nav>
-
-      {/* Logout */}
-      <div className="px-3 py-4 border-t border-blue-900">
-        <button
-          onClick={handleLogout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm
-                     text-blue-400 hover:bg-blue-900 hover:text-red-400 transition-colors duration-150"
-        >
-          <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-          </svg>
-          ออกจากระบบ
-        </button>
-      </div>
-    </aside>
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            <span className="whitespace-nowrap">ออกจากระบบ</span>
+          </button>
+        </div>
+      </aside>
+    </>
   )
 }
