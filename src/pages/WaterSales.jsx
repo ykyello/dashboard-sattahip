@@ -428,7 +428,7 @@ function TabDiscount() {
   const [rows,      setRows]      = useState([])
   const [loading,   setLoading]   = useState(true)
   const [showModal, setShowModal] = useState(false)
-  const [form,      setForm]      = useState({ contract_year: '', volume_over: '', discount_rate: '', discount_amount: '', note: '' })
+  const [form,      setForm]      = useState({ contract_year: '', volume_over: '', discount_amount: '', note: '' })
   const [editId,    setEditId]    = useState(null)
   const [saving,    setSaving]    = useState(false)
   const [delId,     setDelId]     = useState(null)
@@ -443,12 +443,12 @@ function TabDiscount() {
   }
 
   function openAdd() {
-    setForm({ contract_year: '', volume_over: '', discount_rate: '', discount_amount: '', note: '' })
+    setForm({ contract_year: '', volume_over: '', discount_amount: '', note: '' })
     setEditId(null); setShowModal(true)
   }
 
   function openEdit(r) {
-    setForm({ contract_year: r.contract_year, volume_over: r.volume_over ?? '', discount_rate: r.discount_rate ?? '', discount_amount: r.discount_amount ?? '', note: r.note || '' })
+    setForm({ contract_year: r.contract_year, volume_over: r.volume_over ?? '', discount_amount: r.discount_amount ?? '', note: r.note || '' })
     setEditId(r.id); setShowModal(true)
   }
 
@@ -456,7 +456,7 @@ function TabDiscount() {
     if (!form.contract_year) return
     setSaving(true)
     const n = v => v !== '' ? Number(v) : null
-    const payload = { contract_year: Number(form.contract_year), volume_over: n(form.volume_over), discount_rate: n(form.discount_rate), discount_amount: n(form.discount_amount), note: form.note || null }
+    const payload = { contract_year: Number(form.contract_year), cal_year: new Date().getFullYear() + 543, volume_over: n(form.volume_over), discount_amount: n(form.discount_amount), note: form.note || null }
     if (editId) { await supabase.from('water_volume_discount').update(payload).eq('id', editId) }
     else        { await supabase.from('water_volume_discount').insert(payload) }
     setSaving(false); setShowModal(false); fetchRows()
@@ -486,21 +486,25 @@ function TabDiscount() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                {['ปีสัญญา','ปริมาณที่ซื้อเกิน (ลบ.ม.)','อัตราส่วนลด (%)','จำนวนเงิน (บาท)','หมายเหตุ','จัดการ'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                ))}
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide whitespace-nowrap">ปีสัญญา</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide whitespace-nowrap">ปริมาณที่ซื้อเกิน (ลบ.ม.)</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide whitespace-nowrap">จำนวนเงิน (บาท)</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide whitespace-nowrap">หมายเหตุ</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wide whitespace-nowrap">จัดการ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map(r => (
                 <tr key={r.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 text-slate-700 font-medium">ปีที่ {r.contract_year}</td>
+                  <td className="px-4 py-3 text-slate-700 font-medium">
+                    ปีที่ {r.contract_year}
+                    <span className="block text-xs text-slate-400 font-normal">{getPattayaSaleContractLabel(r.contract_year).replace('สัญญาปีที่ ' + r.contract_year + ' ', '')}</span>
+                  </td>
                   <td className="px-4 py-3 text-right text-slate-600">{fmt(r.volume_over)}</td>
-                  <td className="px-4 py-3 text-right text-slate-600">{r.discount_rate != null ? `${fmt(r.discount_rate, 4)}%` : '—'}</td>
                   <td className="px-4 py-3 text-right text-emerald-700 font-medium">{fmt(r.discount_amount, 2)}</td>
                   <td className="px-4 py-3 text-slate-500">{r.note || '—'}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
+                  <td className="px-4 py-3 text-center">
+                    <div className="flex gap-2 justify-center">
                       <button onClick={() => openEdit(r)} className="text-xs px-2.5 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100">แก้ไข</button>
                       <button onClick={() => setDelId(r.id)} className="text-xs px-2.5 py-1 rounded-md border border-red-200 text-red-600 hover:bg-red-50">ลบ</button>
                     </div>
@@ -525,7 +529,7 @@ function TabDiscount() {
                   {WATER_YEAR_OPTIONS.map(y => <option key={y} value={y}>ปีที่ {y} · {getPattayaSaleContractLabel(y)}</option>)}
                 </select>
               </div>
-              {[['volume_over','ปริมาณที่ซื้อเกิน (ลบ.ม.)'],['discount_rate','อัตราส่วนลด (%)'],['discount_amount','จำนวนเงินส่วนลด (บาท)']].map(([key, lbl]) => (
+              {[['volume_over','ปริมาณที่ซื้อเกิน (ลบ.ม.)'],['discount_amount','จำนวนเงินส่วนลด (บาท)']].map(([key, lbl]) => (
                 <div key={key}>
                   <label className="block text-xs text-slate-500 mb-1">{lbl}</label>
                   <input type="number" step="any" value={form[key]}
