@@ -9,6 +9,7 @@ import Contracts       from '../pages/Contracts'
 import AnnualReport    from '../pages/AnnualReport'
 import Assets          from '../pages/Assets'
 import AssetCategories from '../pages/AssetCategories'
+import WaterOutages    from '../pages/WaterOutages'   // ++ เพิ่ม
 
 const pageTitles = {
   '/':                 'Dashboard ภาพรวม',
@@ -19,9 +20,12 @@ const pageTitles = {
   '/annual-report':    'บันทึกผลดำเนินงาน',
   '/assets':           'บัญชีรายการทรัพย์สิน',
   '/asset-categories': 'จัดการประเภททรัพย์สิน',
+  '/water-outages':    'เหตุการณ์หยุดจ่ายน้ำ',        // ++ เพิ่ม
 }
 
 // เส้นทางที่ guest เข้าไม่ได้
+// หมายเหตุ: ไม่ใส่ '/water-outages' ในนี้ เพราะ guest ควรดู dashboard/แผนที่/ตารางประวัติได้
+// (แค่เขียนไม่ได้ ซึ่งบังคับจริงด้วย RLS ในฐานข้อมูล ไม่ใช่การกันทางหน้าเว็บ)
 const ADMIN_ONLY_PATHS = ['/annual-report', '/asset-categories']
 
 export default function MainLayout({ role }) {
@@ -129,6 +133,7 @@ export default function MainLayout({ role }) {
             <Route path="/annual-report"     element={<AnnualReport />} />
             <Route path="/assets"            element={<Assets />} />
             <Route path="/asset-categories"  element={<AssetCategories />} />
+            <Route path="/water-outages"     element={<WaterOutages />} />  {/* ++ เพิ่ม */}
           </Routes>
         </main>
 
