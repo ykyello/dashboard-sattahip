@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { isAdmin } from '../lib/permissions'
 import OutageFormModal from '../components/outages/OutageFormModal'
-// Tab components (ขั้นถัดไป): OutageDashboardTab, OutageMapTab, OutageHistoryTab
+import OutageHistoryTab from '../components/outages/OutageHistoryTab'
+import OutageDashboardTab from '../components/outages/OutageDashboardTab'
+// Tab components (ขั้นถัดไป): OutageMapTab
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -26,7 +28,7 @@ export default function WaterOutages() {
     setShowForm(true)
   }
 
-  // เรียกจาก OutageHistoryTab เมื่อกดปุ่มแก้ไขแถว (ยังไม่ได้สร้าง component นี้ในขั้นนี้)
+  // เรียกจาก OutageHistoryTab เมื่อกดปุ่มแก้ไขแถว
   function openEdit(event) {
     setEditEvent(event)
     setShowForm(true)
@@ -70,20 +72,14 @@ export default function WaterOutages() {
         )}
       </div>
 
-      {tab === 'dashboard' && (
-        <div className="text-sm text-slate-400 bg-white rounded-xl border border-slate-200 p-8 text-center">
-          OutageDashboardTab — พัฒนาในขั้นถัดไป (KPI cards, ranking, กราฟ Recharts จาก outageStats.js)
-        </div>
-      )}
+      {tab === 'dashboard' && <OutageDashboardTab refreshKey={refreshKey} />}
       {tab === 'map' && (
         <div className="text-sm text-slate-400 bg-white rounded-xl border border-slate-200 p-8 text-center">
           OutageMapTab — พัฒนาในขั้นถัดไป (react-leaflet, marker/heatmap toggle จาก locationUtils.js)
         </div>
       )}
       {tab === 'history' && (
-        <div className="text-sm text-slate-400 bg-white rounded-xl border border-slate-200 p-8 text-center">
-          OutageHistoryTab — พัฒนาในขั้นถัดไป (รับ props: admin, refreshKey, onEdit=openEdit)
-        </div>
+        <OutageHistoryTab admin={admin} refreshKey={refreshKey} onEdit={openEdit} />
       )}
 
       {showForm && <OutageFormModal event={editEvent} onClose={() => setShowForm(false)} onSaved={handleSaved} />}

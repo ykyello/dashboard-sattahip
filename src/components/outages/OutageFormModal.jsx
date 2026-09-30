@@ -3,9 +3,11 @@ import { supabase } from '../../lib/supabase'
 import DmaMultiSelect from './DmaMultiSelect'
 import LocationPicker from './LocationPicker'
 import { formatVariance } from '../../lib/outageStats'
+import DateInput from '../ui/DateInput'
+import TimeInput from '../ui/TimeInput'
 
 const CAUSE_OPTIONS = ['ท่อแตก', 'ไฟดับ', 'ซ่อมบำรุง', 'งานก่อสร้าง', 'อื่นๆ']
-const PIPE_TYPE_OPTIONS = ['PVC', 'HDPE', 'AC', 'Steel', 'อื่นๆ']
+const PIPE_TYPE_OPTIONS = ['PVC', 'HDPE', 'PE', 'AC', 'Steel', 'อื่นๆ']
 const PIPE_SIZE_OPTIONS = [100, 150, 200, 250, 300, 400]
 
 const emptyForm = {
@@ -28,6 +30,11 @@ const emptyForm = {
   notes: '',
 }
 
+// แปลง Date → 'YYYY-MM-DD' / 'HH:MM' ตามเวลาเครื่อง (ไม่ใช้ toISOString เพราะเป็น UTC ทำให้วัน/เวลาเลื่อน 7 ชม.)
+const pad = (n) => String(n).padStart(2, '0')
+const toLocalDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+const toLocalTime = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`
+
 function toDateTime(dateStr, timeStr) {
   if (!dateStr || !timeStr) return null
   return new Date(`${dateStr}T${timeStr}:00`)
@@ -45,20 +52,23 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
       const start = new Date(event.start_at)
       const completion = event.actual_completion_at ? new Date(event.actual_completion_at) : null
       const sizeIsPreset = PIPE_SIZE_OPTIONS.includes(event.pipe_size)
+      const hasAnnounced = event.announced_duration_min !== null && event.announced_duration_min !== undefined
+      // ข้อมูลนำเข้าจาก Excel ใส่เวลา 00:00 ไว้แทน → เว้นช่องเวลาว่างเพื่อบังคับให้กรอกเวลาจริง
+      const isPlaceholderTime = !hasAnnounced && toLocalTime(start) === '00:00'
       setForm({
-        event_date: start.toISOString().slice(0, 10),
-        event_time: start.toISOString().slice(11, 16),
-        announced_hours: String(Math.floor(event.announced_duration_min / 60)),
-        announced_minutes: String(event.announced_duration_min % 60),
-        completion_date: completion ? completion.toISOString().slice(0, 10) : '',
-        completion_time: completion ? completion.toISOString().slice(11, 16) : '',
+        event_date: toLocalDate(start),
+        event_time: isPlaceholderTime ? '' : toLocalTime(start),
+        announced_hours: hasAnnounced ? String(Math.floor(event.announced_duration_min / 60)) : '',
+        announced_minutes: hasAnnounced ? String(event.announced_duration_min % 60) : '',
+        completion_date: completion ? toLocalDate(completion) : '',
+        completion_time: completion ? toLocalTime(completion) : '',
         location_name: event.location_name || '',
         latitude: event.latitude ?? '',
         longitude: event.longitude ?? '',
         pipeline_line: event.pipeline_line || '',
         pipe_size: sizeIsPreset ? String(event.pipe_size) : event.pipe_size ? 'custom' : '',
         pipe_size_custom: sizeIsPreset ? '' : String(event.pipe_size ?? ''),
-        pipe_type: event.pipe_type || 'PVC',
+        pipe_type: event.pipe_type || '',
         cause: event.cause || 'ท่อแตก',
         affected_area: event.affected_area || '',
         affected_users: event.affected_users ?? '',
@@ -202,23 +212,11 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs text-slate-500 mb-1">วันที่เกิดเหตุ *</label>
-                <input
-                  type="date"
-                  required
-                  value={form.event_date}
-                  onChange={(e) => set('event_date', e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <DateInput value={form.event_date} onChange={(v) => set('event_date', v)} required />
               </div>
               <div>
                 <label className="block text-xs text-slate-500 mb-1">เวลา *</label>
-                <input
-                  type="time"
-                  required
-                  value={form.event_time}
-                  onChange={(e) => set('event_time', e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <TimeInput value={form.event_time} onChange={(v) => set('event_time', v)} required />
               </div>
             </div>
 
@@ -251,21 +249,11 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs text-slate-500 mb-1">วันที่ซ่อมเสร็จจริง</label>
-                <input
-                  type="date"
-                  value={form.completion_date}
-                  onChange={(e) => set('completion_date', e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
-                />
+                <DateInput value={form.completion_date} onChange={(v) => set('completion_date', v)} />
               </div>
               <div>
                 <label className="block text-xs text-slate-500 mb-1">เวลาซ่อมเสร็จจริง</label>
-                <input
-                  type="time"
-                  value={form.completion_time}
-                  onChange={(e) => set('completion_time', e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
-                />
+                <TimeInput value={form.completion_time} onChange={(v) => set('completion_time', v)} />
               </div>
             </div>
             <p className="text-xs text-slate-400">
@@ -375,6 +363,7 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
                   onChange={(e) => set('pipe_type', e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
                 >
+                  <option value="">— ไม่ระบุ —</option>
                   {PIPE_TYPE_OPTIONS.map((t) => (
                     <option key={t} value={t}>
                       {t}

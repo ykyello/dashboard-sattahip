@@ -29,8 +29,11 @@ export function computeKpis(events) {
   const totalHours = closed.reduce((s, e) => s + (e.actual_duration_min || 0), 0) / 60
   const avgDurationMin =
     closed.length > 0 ? closed.reduce((s, e) => s + e.actual_duration_min, 0) / closed.length : null
-  const onTimeCount = closed.filter((e) => e.variance_min <= 0).length
-  const onTimePct = closed.length > 0 ? (onTimeCount / closed.length) * 100 : null
+  // นับเฉพาะรายการที่มี variance จริง — ถ้าไม่มีระยะเวลาประกาศ variance_min เป็น null
+  // (JS: null <= 0 ได้ true จึงต้องกรองออก ไม่งั้นถูกนับเป็น "ตรงเวลา")
+  const withVariance = closed.filter((e) => e.variance_min !== null && e.variance_min !== undefined)
+  const onTimeCount = withVariance.filter((e) => e.variance_min <= 0).length
+  const onTimePct = withVariance.length > 0 ? (onTimeCount / withVariance.length) * 100 : null
 
   const dmaIds = new Set()
   events.forEach((e) => (e.dma_list || []).forEach((d) => dmaIds.add(d.id)))
