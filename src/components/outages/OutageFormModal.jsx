@@ -53,7 +53,7 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
       const completion = event.actual_completion_at ? new Date(event.actual_completion_at) : null
       const sizeIsPreset = PIPE_SIZE_OPTIONS.includes(event.pipe_size)
       const hasAnnounced = event.announced_duration_min !== null && event.announced_duration_min !== undefined
-      // ข้อมูลนำเข้าจาก Excel ใส่เวลา 00:00 ไว้แทน → เว้นช่องเวลาว่างเพื่อบังคับให้กรอกเวลาจริง
+      // ข้อมูลที่ไม่ได้กรอกเวลา (หรือนำเข้าจาก Excel) ถูกเก็บเป็น 00:00 → แสดงช่องเวลาว่างไว้ให้เติมทีหลัง
       const isPlaceholderTime = !hasAnnounced && toLocalTime(start) === '00:00'
       setForm({
         event_date: toLocalDate(start),
@@ -88,6 +88,7 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
   }
 
   // ── preview คำนวณระยะเวลา (แสดงผลเฉยๆ ก่อนบันทึก — ค่าจริงถูกคำนวณโดย generated column ในฐานข้อมูล) ──
+  // preview ใช้เฉพาะเมื่อกรอกเวลาเกิดเหตุจริง (ไม่ใช้ 00:00 แทน เพื่อไม่ให้ตัวเลขคลาดเคลื่อน)
   const startPreview = toDateTime(form.event_date, form.event_time)
   const completionPreview = toDateTime(form.completion_date, form.completion_time)
   let previewText = null
@@ -106,13 +107,18 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
     e.preventDefault()
     setError(null)
 
-    if (!startPreview) return setError('กรุณากรอกวันที่และเวลาเกิดเหตุ')
-    if (form.latitude === '' || form.longitude === '') return setError('กรุณาระบุพิกัด (กรอกเองหรือคลิกปักหมุด)')
-    if (dmaList.length === 0) return setError('กรุณาเลือก DMA อย่างน้อย 1 พื้นที่')
+    // บังคับเฉพาะวันที่เกิดเหตุ — ถ้าไม่กรอกเวลา จะบันทึกเป็น 00:00 ไว้ก่อน
+    if (!form.event_date) return setError('กรุณากรอกวันที่เกิดเหตุ')
+    const startAt = toDateTime(form.event_date, form.event_time || '00:00')
 
     setSaving(true)
 
-    const announcedMin = (Number(form.announced_hours) || 0) * 60 + (Number(form.announced_minutes) || 0)
+    // ระยะเวลาตามประกาศ: ว่างทั้ง 2 ช่อง → null (ไม่ใช่ 0)
+    const hasAnnounced = form.announced_hours !== '' || form.announced_minutes !== ''
+    const announcedMin = hasAnnounced
+      ? (Number(form.announced_hours) || 0) * 60 + (Number(form.announced_minutes) || 0)
+      : null
+
     const pipeSize =
       form.pipe_size === 'custom'
         ? form.pipe_size_custom
@@ -122,13 +128,16 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
         ? Number(form.pipe_size)
         : null
 
+    // พิกัด: ต้องมีครบทั้งคู่จึงบันทึก ไม่งั้นเป็น null ทั้งคู่
+    const hasCoords = form.latitude !== '' && form.longitude !== ''
+
     const payload = {
-      start_at: startPreview.toISOString(),
+      start_at: startAt.toISOString(),
       announced_duration_min: announcedMin,
       actual_completion_at: completionPreview ? completionPreview.toISOString() : null,
-      location_name: form.location_name,
-      latitude: Number(form.latitude),
-      longitude: Number(form.longitude),
+      location_name: form.location_name || null,
+      latitude: hasCoords ? Number(form.latitude) : null,
+      longitude: hasCoords ? Number(form.longitude) : null,
       pipeline_line: form.pipeline_line || null,
       pipe_size: pipeSize,
       pipe_type: form.pipe_type || null,
@@ -160,9 +169,11 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
       return setError(`บันทึกไม่สำเร็จ: ${saveError.message}`)
     }
 
-    // sync ความสัมพันธ์ DMA: ลบของเดิมแล้ว insert ใหม่ทั้งหมด (ง่ายกว่า diff และพอเพียงกับสเกลนี้)
+    // sync ความสัมพันธ์ DMA: ลบของเดิมแล้ว insert ใหม่ (ข้ามการ insert ถ้าไม่ได้เลือก DMA)
     await supabase.from('water_outage_event_dma').delete().eq('event_id', eventId)
-    await supabase.from('water_outage_event_dma').insert(dmaList.map((d) => ({ event_id: eventId, dma_id: d.id })))
+    if (dmaList.length > 0) {
+      await supabase.from('water_outage_event_dma').insert(dmaList.map((d) => ({ event_id: eventId, dma_id: d.id })))
+    }
 
     // อัปโหลดไฟล์แนบใหม่ (ถ้ามี) — ไฟล์เดิมยังอยู่ ไฟล์ใหม่ถูกเพิ่มเข้าไป
     for (const file of files) {
@@ -215,18 +226,17 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
                 <DateInput value={form.event_date} onChange={(v) => set('event_date', v)} required />
               </div>
               <div>
-                <label className="block text-xs text-slate-500 mb-1">เวลา *</label>
-                <TimeInput value={form.event_time} onChange={(v) => set('event_time', v)} required />
+                <label className="block text-xs text-slate-500 mb-1">เวลา</label>
+                <TimeInput value={form.event_time} onChange={(v) => set('event_time', v)} />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs text-slate-500 mb-1">ระยะเวลาซ่อมตามประกาศ *</label>
+              <label className="block text-xs text-slate-500 mb-1">ระยะเวลาซ่อมตามประกาศ</label>
               <div className="flex items-center gap-2">
                 <input
                   type="number"
                   min="0"
-                  required
                   value={form.announced_hours}
                   onChange={(e) => set('announced_hours', e.target.value)}
                   placeholder="ชม."
@@ -257,7 +267,7 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
               </div>
             </div>
             <p className="text-xs text-slate-400">
-              เว้นว่างได้หากยังซ่อมไม่เสร็จ — บันทึกเหตุการณ์ไว้ก่อนแล้วกลับมาแก้ไขเติมทีหลังได้
+              กรอกเฉพาะวันที่เกิดเหตุก็บันทึกได้ — ช่องอื่นกลับมาแก้ไขเติมทีหลังได้
             </p>
 
             {previewText ? (
@@ -266,7 +276,7 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
               </div>
             ) : (
               <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-xs text-slate-400">
-                ยังไม่ได้กรอกเวลาซ่อมเสร็จ — ระบบจะคำนวณระยะเวลาซ่อมจริงให้อัตโนมัติเมื่อมีข้อมูลครบ
+                ยังกรอกเวลาไม่ครบ — ระบบจะคำนวณระยะเวลาซ่อมจริงให้อัตโนมัติเมื่อมีข้อมูลครบ
               </div>
             )}
           </section>
@@ -275,10 +285,9 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
           <section className="space-y-3">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">2. จุดเกิดเหตุ</p>
             <div>
-              <label className="block text-xs text-slate-500 mb-1">สถานที่เกิดเหตุ / จุดที่ท่อแตก *</label>
+              <label className="block text-xs text-slate-500 mb-1">สถานที่เกิดเหตุ / จุดที่ท่อแตก</label>
               <input
                 type="text"
-                required
                 value={form.location_name}
                 onChange={(e) => set('location_name', e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
@@ -294,22 +303,20 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
             />
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs text-slate-500 mb-1">Latitude *</label>
+                <label className="block text-xs text-slate-500 mb-1">Latitude</label>
                 <input
                   type="number"
                   step="any"
-                  required
                   value={form.latitude}
                   onChange={(e) => set('latitude', e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
                 />
               </div>
               <div>
-                <label className="block text-xs text-slate-500 mb-1">Longitude *</label>
+                <label className="block text-xs text-slate-500 mb-1">Longitude</label>
                 <input
                   type="number"
                   step="any"
-                  required
                   value={form.longitude}
                   onChange={(e) => set('longitude', e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
@@ -413,7 +420,7 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
               />
             </div>
             <div>
-              <label className="block text-xs text-slate-500 mb-1">DMA ที่ได้รับผลกระทบ *</label>
+              <label className="block text-xs text-slate-500 mb-1">DMA ที่ได้รับผลกระทบ</label>
               <DmaMultiSelect value={dmaList} onChange={setDmaList} />
             </div>
           </section>
