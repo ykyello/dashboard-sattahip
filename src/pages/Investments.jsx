@@ -39,8 +39,11 @@ const COLOR = {
 const emptyForm = {
   category_id:  'pipe',
   item_name:    '',
-  invest_date:  '',
+  date_mode:    'date',   // 'date' = ระบุวันที่ | 'year' = ระบุเฉพาะปี
+  date_th:      '',       // dd/mm/yyyy (พ.ศ.)
+  invest_year:  '',       // ปี พ.ศ.
   amount:       '',
+  pipe_length:  '',       // เมตร
   description:  '',
   notes:        '',
 }
@@ -55,6 +58,44 @@ function pct(actual, contract) {
   return Math.min(100, (actual / contract) * 100)
 }
 
+// ── วันที่ พ.ศ. ─────────────────────────────────────────
+// ISO (2026-09-02) → 02/09/2569
+function isoToThai(iso) {
+  if (!iso) return ''
+  const [y, m, d] = iso.split('-')
+  return `${d}/${m}/${Number(y) + 543}`
+}
+
+// 02/09/2569 → 2026-09-02 | null ถ้ารูปแบบผิด
+function thaiToIso(str) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(str || '')
+  if (!m) return null
+  const d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]) - 543
+  const dt = new Date(Date.UTC(y, mo - 1, d))
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
+// ใส่ / ให้อัตโนมัติขณะพิมพ์
+function maskThaiDate(v) {
+  const d = v.replace(/\D/g, '').slice(0, 8)
+  if (d.length <= 2) return d
+  if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`
+  return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`
+}
+
+function isValidBEYear(v) {
+  const y = Number(v)
+  return /^\d{4}$/.test(String(v)) && y >= 2400 && y <= 2700
+}
+
+// แสดงในตาราง: มีวันที่ → dd/mm/yyyy, มีแค่ปี → "ปี 2548"
+function displayDate(r) {
+  if (r.invest_date) return isoToThai(r.invest_date)
+  if (r.invest_year) return `ปี ${r.invest_year}`
+  return '—'
+}
+
 function ProgressBar({ value, color }) {
   const c = COLOR[color]
   return (
@@ -67,7 +108,7 @@ function ProgressBar({ value, color }) {
   )
 }
 
-function CategoryCard({ cat, actual }) {
+function CategoryCard({ cat, actual, pipeLength }) {
   const c       = COLOR[cat.color]
   const remain  = cat.contractAmount - actual
   const percent = pct(actual, cat.contractAmount)
@@ -113,6 +154,16 @@ function CategoryCard({ cat, actual }) {
           <p className="text-xs text-slate-400">{remain < 0 ? 'เกินวงเงิน' : 'บาท'}</p>
         </div>
       </div>
+
+      {/* ความยาวท่อสะสม — เฉพาะหมวดท่อ */}
+      {cat.id === 'pipe' && (
+        <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+          <p className="text-xs text-slate-400">ความยาวท่อสะสม</p>
+          <p className={`text-sm font-semibold ${c.text}`}>
+            {fmt(pipeLength, 2)} <span className="text-xs font-normal text-slate-400">เมตร</span>
+          </p>
+        </div>
+      )}
     </div>
   )
 }
@@ -138,7 +189,8 @@ export default function Investments() {
     setLoading(true)
     const { data, error } = await supabase
       .from('investment_projects')
-      .select('id, category_id, item_name, invest_date, amount, description, notes')
+      .select('id, category_id, item_name, invest_date, invest_year, amount, pipe_length, description, notes')
+      .order('invest_year', { ascending: false, nullsFirst: false })
       .order('invest_date', { ascending: false, nullsFirst: false })
     if (!error) setItems(data || [])
     setLoading(false)
@@ -148,6 +200,12 @@ export default function Investments() {
     return items
       .filter(r => r.category_id === catId)
       .reduce((s, r) => s + (Number(r.amount) || 0), 0)
+  }
+
+  function pipeLengthTotal(list) {
+    return list
+      .filter(r => r.category_id === 'pipe')
+      .reduce((s, r) => s + (Number(r.pipe_length) || 0), 0)
   }
 
   const totalActual  = items.reduce((s, r) => s + (Number(r.amount) || 0), 0)
@@ -169,8 +227,11 @@ export default function Investments() {
     setForm({
       category_id:  r.category_id  || 'pipe',
       item_name:    r.item_name    || '',
-      invest_date:  r.invest_date  || '',
+      date_mode:    !r.invest_date && r.invest_year ? 'year' : 'date',
+      date_th:      isoToThai(r.invest_date),
+      invest_year:  r.invest_year  != null ? String(r.invest_year) : '',
       amount:       r.amount       != null ? String(r.amount) : '',
+      pipe_length:  r.pipe_length  != null ? String(r.pipe_length) : '',
       description:  r.description  || '',
       notes:        r.notes        || '',
     })
@@ -181,20 +242,48 @@ export default function Investments() {
 
   async function handleSave(e) {
     e.preventDefault()
-    setSaving(true)
     setSaveError(null)
+
+    // ── วันที่ / ปี ──
+    let investDate = null
+    let investYear = null
+    if (form.date_mode === 'date') {
+      if (form.date_th) {
+        investDate = thaiToIso(form.date_th)
+        if (!investDate) {
+          setSaveError('วันที่ไม่ถูกต้อง กรุณากรอกแบบ วว/ดด/ปปปป (พ.ศ.) เช่น 02/09/2569')
+          return
+        }
+        investYear = Number(form.date_th.slice(-4))
+      }
+    } else if (form.invest_year) {
+      if (!isValidBEYear(form.invest_year)) {
+        setSaveError('ปี พ.ศ. ไม่ถูกต้อง กรุณากรอก 4 หลัก เช่น 2548')
+        return
+      }
+      investYear = Number(form.invest_year)
+    }
+
+    const amount     = form.amount !== '' ? Number(form.amount) : null
+    const pipeLength = form.category_id === 'pipe' && form.pipe_length !== ''
+      ? Number(form.pipe_length)
+      : null
+
+    setSaving(true)
 
     const payload = {
       category_id:  form.category_id,
       item_name:    form.item_name,
       project_name: form.item_name,           // compat column
-      invest_date:  form.invest_date || null,
-      start_date:   form.invest_date || null,  // compat column
-      amount:       form.amount !== '' ? Number(form.amount) : null,
-      budget:       form.amount !== '' ? Number(form.amount) : null, // compat column
+      invest_date:  investDate,
+      invest_year:  investYear,
+      start_date:   investDate,               // compat column
+      amount,
+      budget:       amount,                   // compat column
+      pipe_length:  pipeLength,
       description:  form.description || null,
       notes:        form.notes       || null,
-      status:       'completed',               // compat column
+      status:       'completed',              // compat column
     }
 
     let error
@@ -231,6 +320,8 @@ export default function Investments() {
   const filtered = filterCat === 'all'
     ? items
     : items.filter(r => r.category_id === filterCat)
+
+  const showPipe = form.category_id === 'pipe'
 
   return (
     <div className="space-y-6">
@@ -279,7 +370,12 @@ export default function Investments() {
       {/* Category Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {INVESTMENT_CATEGORIES.map(cat => (
-          <CategoryCard key={cat.id} cat={cat} actual={actualByCategory(cat.id)} />
+          <CategoryCard
+            key={cat.id}
+            cat={cat}
+            actual={actualByCategory(cat.id)}
+            pipeLength={pipeLengthTotal(items)}
+          />
         ))}
       </div>
 
@@ -333,7 +429,7 @@ export default function Investments() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
-                    {['หมวด','รายการลงทุน','วันที่','มูลค่า (บาท)','รายละเอียด','จัดการ'].map(h => (
+                    {['หมวด','รายการลงทุน','วันที่','ความยาวท่อ (ม.)','มูลค่า (บาท)','รายละเอียด','จัดการ'].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-500
                                              uppercase tracking-wide whitespace-nowrap">
                         {h}
@@ -360,7 +456,12 @@ export default function Investments() {
                           <p className="truncate">{r.item_name || '—'}</p>
                         </td>
                         <td className="px-4 py-3 text-slate-500 whitespace-nowrap text-xs">
-                          {r.invest_date || '—'}
+                          {displayDate(r)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-600 whitespace-nowrap">
+                          {r.category_id === 'pipe' && r.pipe_length != null
+                            ? fmt(r.pipe_length, 2)
+                            : <span className="text-slate-300">—</span>}
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-slate-700 whitespace-nowrap">
                           {fmt(r.amount, 2)}
@@ -400,6 +501,9 @@ export default function Investments() {
                   <tr>
                     <td colSpan={3} className="px-4 py-3 text-xs font-semibold text-slate-600">
                       รวม {filtered.length} รายการ
+                    </td>
+                    <td className="px-4 py-3 text-right font-bold text-slate-800 whitespace-nowrap">
+                      {filterCat === 'scada' ? '' : `${fmt(pipeLengthTotal(filtered), 2)} ม.`}
                     </td>
                     <td className="px-4 py-3 text-right font-bold text-slate-800 whitespace-nowrap">
                       {fmt(filtered.reduce((s, r) => s + (Number(r.amount) || 0), 0), 2)} บาท
@@ -467,17 +571,56 @@ export default function Investments() {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
+                {/* วันที่ / ปี */}
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1">วันที่ดำเนินการ</label>
-                  <input
-                    type="date"
-                    name="invest_date"
-                    value={form.invest_date}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm
-                               focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs text-slate-500">
+                      {form.date_mode === 'date' ? 'วันที่ดำเนินการ' : 'ปีที่ดำเนินการ'}
+                    </label>
+                    <div className="flex rounded-md border border-slate-200 overflow-hidden text-[11px]">
+                      {[
+                        { id: 'date', label: 'วันที่' },
+                        { id: 'year', label: 'เฉพาะปี' },
+                      ].map((m, i) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => setForm(f => ({ ...f, date_mode: m.id }))}
+                          className={`px-2 py-0.5 transition-colors ${i > 0 ? 'border-l border-slate-200' : ''} ${
+                            form.date_mode === m.id
+                              ? 'bg-blue-900 text-white'
+                              : 'bg-white text-slate-500 hover:bg-slate-50'
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {form.date_mode === 'date' ? (
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={form.date_th}
+                      onChange={e => setForm(f => ({ ...f, date_th: maskThaiDate(e.target.value) }))}
+                      placeholder="วว/ดด/ปปปป เช่น 02/09/2569"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={4}
+                      value={form.invest_year}
+                      onChange={e => setForm(f => ({ ...f, invest_year: e.target.value.replace(/\D/g, '') }))}
+                      placeholder="ปี พ.ศ. เช่น 2548"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  )}
                 </div>
+
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">มูลค่าเงินลงทุน (บาท) *</label>
                   <input
@@ -494,6 +637,26 @@ export default function Investments() {
                   />
                 </div>
               </div>
+
+              {/* ความยาวท่อ — เฉพาะหมวดท่อ */}
+              {showPipe && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">ความยาวท่อ (เมตร)</label>
+                    <input
+                      type="number"
+                      name="pipe_length"
+                      step="any"
+                      min="0"
+                      value={form.pipe_length}
+                      onChange={handleChange}
+                      placeholder="0"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs text-slate-500 mb-1">รายละเอียด</label>
