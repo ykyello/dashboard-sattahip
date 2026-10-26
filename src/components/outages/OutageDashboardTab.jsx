@@ -133,7 +133,8 @@ export default function OutageDashboardTab({ system, refreshKey }) {
 
   // ── KPI ──
   const kpi = useMemo(() => computeKpis(scoped), [scoped])
-  const timeReady = scoped.filter(hasTimeData)
+  // ระบบที่ไม่ใช้ระยะเวลาประกาศ: ทุกรายการถือว่าบันทึกครบด้านเวลาแล้ว
+  const timeReady = cfg?.showAnnounced ? scoped.filter(hasTimeData) : scoped
   const closedCount = scoped.filter((e) => e.actual_completion_at != null).length
   // "อยู่ระหว่างซ่อม" นับเฉพาะรายการที่บันทึกครบแล้วแต่ยังไม่มีเวลาซ่อมเสร็จ
   // (ข้อมูลนำเข้าจาก Excel ไม่นับ เพราะไม่ได้กำลังซ่อมอยู่จริง)
@@ -267,7 +268,7 @@ export default function OutageDashboardTab({ system, refreshKey }) {
           {yearOptions.map((y) => <option key={y} value={y}>ปี พ.ศ. {y}</option>)}
           <option value="all">ทุกปี</option>
         </select>
-        {incompleteCount > 0 && (
+        {cfg.showAnnounced && incompleteCount > 0 && (
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
             {incompleteCount} รายการยังไม่มีเวลาและระยะเวลาประกาศ — ตัวชี้วัดด้านเวลาคำนวณจาก {closedCount} รายการที่ซ่อมเสร็จแล้ว
           </p>
@@ -275,7 +276,7 @@ export default function OutageDashboardTab({ system, refreshKey }) {
       </div>
 
       {/* ── KPI cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className={`grid grid-cols-2 gap-3 ${cfg.showAnnounced ? 'lg:grid-cols-5' : 'lg:grid-cols-3'}`}>
         <KpiCard
           label="เหตุการณ์หยุดจ่ายน้ำ"
           value={scoped.length}
@@ -298,19 +299,23 @@ export default function OutageDashboardTab({ system, refreshKey }) {
           value={fmtMin(kpi.avgRepairDurationMin)}
           sub={closedCount > 0 ? `จาก ${closedCount} รายการ` : null}
         />
-        <KpiCard
-          label="ซ่อมเสร็จตามเวลาประกาศ"
-          value={kpi.onTimeRepairPct !== null ? kpi.onTimeRepairPct.toFixed(0) : null}
-          unit="%"
-          sub={closedCount > 0 ? `จาก ${closedCount} รายการ` : null}
-        />
-        <KpiCard
-          label="อยู่ระหว่างซ่อม"
-          value={openCount}
-          unit="รายการ"
-          subTone={openCount > 0 ? 'amber' : 'slate'}
-          sub={openCount > 0 ? 'ยังไม่บันทึกเวลาซ่อมเสร็จ' : null}
-        />
+        {cfg.showAnnounced && (
+          <KpiCard
+            label="ซ่อมเสร็จตามเวลาประกาศ"
+            value={kpi.onTimeRepairPct !== null ? kpi.onTimeRepairPct.toFixed(0) : null}
+            unit="%"
+            sub={closedCount > 0 ? `จาก ${closedCount} รายการ` : null}
+          />
+        )}
+        {cfg.showAnnounced && (
+          <KpiCard
+            label="อยู่ระหว่างซ่อม"
+            value={openCount}
+            unit="รายการ"
+            subTone={openCount > 0 ? 'amber' : 'slate'}
+            sub={openCount > 0 ? 'ยังไม่บันทึกเวลาซ่อมเสร็จ' : null}
+          />
+        )}
       </div>
 
       {/* ── Monthly chart + cause breakdown ── */}

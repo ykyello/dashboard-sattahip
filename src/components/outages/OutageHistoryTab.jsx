@@ -29,7 +29,7 @@ function fmtMin(min) {
 function missingFields(e, cfg) {
   const miss = []
   if (e.latitude === null || e.longitude === null) miss.push('พิกัด')
-  if (e.announced_duration_min === null) miss.push('ระยะเวลาประกาศ')
+  if (cfg.showAnnounced && e.announced_duration_min === null) miss.push('ระยะเวลาประกาศ')
   if (cfg.showImpact && e.dma_list.length === 0) miss.push('DMA')
   return miss
 }
@@ -261,8 +261,12 @@ export default function OutageHistoryTab({ system, admin, refreshKey, onEdit }) 
                   {cfg.showImpact && (
                     <th className="px-4 py-3 text-left font-medium whitespace-nowrap">DMA</th>
                   )}
-                  <th className="px-4 py-3 text-right font-medium whitespace-nowrap">ประกาศ</th>
-                  <th className="px-4 py-3 text-right font-medium whitespace-nowrap">ซ่อมจริง</th>
+                  {cfg.showAnnounced && (
+                    <th className="px-4 py-3 text-right font-medium whitespace-nowrap">ประกาศ</th>
+                  )}
+                  <th className="px-4 py-3 text-right font-medium whitespace-nowrap">
+                    {cfg.showAnnounced ? 'ซ่อมจริง' : 'ระยะเวลาซ่อม'}
+                  </th>
                   {admin && <th className="px-4 py-3" />}
                 </tr>
               </thead>
@@ -309,14 +313,16 @@ export default function OutageHistoryTab({ system, admin, refreshKey, onEdit }) 
                       {cfg.showImpact && (
                         <td className="px-4 py-3 text-slate-600 text-xs min-w-[90px]">{dmaLabel(e.dma_list)}</td>
                       )}
-                      <td className="px-4 py-3 text-right whitespace-nowrap text-slate-600">
-                        {fmtMin(e.announced_duration_min)}
-                      </td>
+                      {cfg.showAnnounced && (
+                        <td className="px-4 py-3 text-right whitespace-nowrap text-slate-600">
+                          {fmtMin(e.announced_duration_min)}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         {e.actual_duration_min !== null ? (
                           <>
                             <p className="text-slate-700">{fmtMin(e.actual_duration_min)}</p>
-                            {e.variance_min !== null && (
+                            {cfg.showAnnounced && e.variance_min !== null && (
                               <p className={`text-xs ${e.variance_min > 0 ? 'text-red-600' : 'text-green-600'}`}>
                                 {e.variance_min > 0 ? `ช้า ${fmtMin(e.variance_min)}` : e.variance_min < 0 ? `เร็ว ${fmtMin(e.variance_min)}` : 'ตรงเวลา'}
                               </p>

@@ -109,15 +109,20 @@ export default function OutageFormModal({ system, event, onClose, onSaved }) {
   // preview ใช้เฉพาะเมื่อกรอกเวลาเกิดเหตุจริง (ไม่ใช้ 00:00 แทน เพื่อไม่ให้ตัวเลขคลาดเคลื่อน)
   const startPreview = toDateTime(form.event_date, form.event_time)
   const completionPreview = toDateTime(form.completion_date, form.completion_time)
+  // ระยะเวลาซ่อมจริง (นาที) — คำนวณเมื่อมีวันเวลาเกิดเหตุและวันเวลาซ่อมเสร็จครบ
+  const actualMinPreview =
+    startPreview && completionPreview ? Math.round((completionPreview - startPreview) / 60000) : null
+  const durationText =
+    actualMinPreview !== null
+      ? `${Math.floor(Math.abs(actualMinPreview) / 60)} ชม. ${Math.abs(actualMinPreview) % 60} นาที`
+      : null
+
   let previewText = null
-  if (startPreview && completionPreview && form.announced_hours !== '') {
-    const actualMin = Math.round((completionPreview - startPreview) / 60000)
+  if (actualMinPreview !== null && form.announced_hours !== '') {
     const announcedMin = (Number(form.announced_hours) || 0) * 60 + (Number(form.announced_minutes) || 0)
-    const h = Math.floor(Math.abs(actualMin) / 60)
-    const m = Math.abs(actualMin) % 60
     previewText = {
-      duration: `${h} ชม. ${m} นาที`,
-      variance: formatVariance(actualMin - announcedMin),
+      duration: durationText,
+      variance: formatVariance(actualMinPreview - announcedMin),
     }
   }
 
@@ -130,6 +135,11 @@ export default function OutageFormModal({ system, event, onClose, onSaved }) {
     // บังคับเฉพาะวันที่เกิดเหตุ — ถ้าไม่กรอกเวลา จะบันทึกเป็น 00:00 ไว้ก่อน
     if (!form.event_date) return setError('กรุณากรอกวันที่เกิดเหตุ')
     const startAt = toDateTime(form.event_date, form.event_time || '00:00')
+
+    // ระบบที่ไม่มีระยะเวลาประกาศ: กันบันทึกเวลาซ่อมเสร็จก่อนเวลาเกิดเหตุ (ระยะเวลาซ่อมจะติดลบ)
+    if (!cfg.showAnnounced && actualMinPreview !== null && actualMinPreview < 0) {
+      return setError('วันเวลาซ่อมเสร็จต้องอยู่หลังวันเวลาเกิดเหตุ')
+    }
 
     setSaving(true)
 
@@ -168,6 +178,9 @@ export default function OutageFormModal({ system, event, onClose, onSaved }) {
       notes: form.notes || null,
       updated_at: new Date().toISOString(),
     }
+
+    // ระบบที่ไม่ใช้ระยะเวลาประกาศ: ไม่ส่งค่านี้เลย → รายการเก่าที่เคยมีค่าไว้จะไม่ถูกล้างตอนแก้ไข
+    if (!cfg.showAnnounced) delete payload.announced_duration_min
 
     let eventId = event?.id
     let saveError
@@ -257,6 +270,7 @@ export default function OutageFormModal({ system, event, onClose, onSaved }) {
               </div>
             </div>
 
+            {cfg?.showAnnounced && (
             <div>
               <label className="block text-xs text-slate-500 mb-1">ระยะเวลาซ่อมตามประกาศ</label>
               <div className="flex items-center gap-2">
@@ -281,22 +295,48 @@ export default function OutageFormModal({ system, event, onClose, onSaved }) {
                 <span className="text-xs text-slate-400">นาที</span>
               </div>
             </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs text-slate-500 mb-1">วันที่ซ่อมเสร็จจริง</label>
+                <label className="block text-xs text-slate-500 mb-1">
+                  {cfg?.showAnnounced ? 'วันที่ซ่อมเสร็จจริง' : 'วันที่ซ่อมเสร็จ'}
+                </label>
                 <DateInput value={form.completion_date} onChange={(v) => set('completion_date', v)} />
               </div>
               <div>
-                <label className="block text-xs text-slate-500 mb-1">เวลาซ่อมเสร็จจริง</label>
+                <label className="block text-xs text-slate-500 mb-1">
+                  {cfg?.showAnnounced ? 'เวลาซ่อมเสร็จจริง' : 'เวลาซ่อมเสร็จ'}
+                </label>
                 <TimeInput value={form.completion_time} onChange={(v) => set('completion_time', v)} />
               </div>
             </div>
+
+            {/* ระยะเวลาการซ่อม — คำนวณอัตโนมัติ (ระบบที่ไม่ใช้ระยะเวลาประกาศ) */}
+            {!cfg?.showAnnounced && (
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">ระยะเวลาการซ่อม (คำนวณอัตโนมัติ)</label>
+                <div
+                  className={`w-full px-3 py-2 rounded-lg border text-sm ${
+                    actualMinPreview !== null && actualMinPreview < 0
+                      ? 'border-red-200 bg-red-50 text-red-700'
+                      : durationText
+                      ? 'border-slate-200 bg-slate-50 text-slate-800 font-medium'
+                      : 'border-slate-200 bg-slate-50 text-slate-400'
+                  }`}
+                >
+                  {actualMinPreview !== null && actualMinPreview < 0
+                    ? 'วันเวลาซ่อมเสร็จอยู่ก่อนวันเวลาเกิดเหตุ — กรุณาตรวจสอบ'
+                    : durationText ?? 'กรอกวันที่และเวลาเกิดเหตุ กับวันที่และเวลาซ่อมเสร็จให้ครบ'}
+                </div>
+              </div>
+            )}
+
             <p className="text-xs text-slate-400">
               กรอกเฉพาะวันที่เกิดเหตุก็บันทึกได้ — ช่องอื่นกลับมาแก้ไขเติมทีหลังได้
             </p>
 
-            {previewText ? (
+            {cfg?.showAnnounced && (previewText ? (
               <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-2.5 text-xs text-blue-700">
                 ระยะเวลาซ่อมจริง (โดยประมาณ): <strong>{previewText.duration}</strong> · {previewText.variance}
               </div>
@@ -304,7 +344,7 @@ export default function OutageFormModal({ system, event, onClose, onSaved }) {
               <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-xs text-slate-400">
                 ยังกรอกเวลาไม่ครบ — ระบบจะคำนวณระยะเวลาซ่อมจริงให้อัตโนมัติเมื่อมีข้อมูลครบ
               </div>
-            )}
+            ))}
           </section>
 
           {/* 2. จุดเกิดเหตุ */}

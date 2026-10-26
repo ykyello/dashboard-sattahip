@@ -4,6 +4,7 @@
 //
 // showPipeline — แสดง/บันทึกข้อมูลเส้นท่อ (pipeline_line, pipe_size, pipe_type)
 // showImpact   — แสดง/บันทึกข้อมูลผลกระทบ (affected_area, affected_users, DMA)
+// showAnnounced — ใช้ระยะเวลาซ่อมตามประกาศ (announced_duration_min) และตัวชี้วัดซ่อมเสร็จตามเวลาประกาศ
 
 export const OUTAGE_SYSTEMS = {
   sattahip: {
@@ -12,6 +13,7 @@ export const OUTAGE_SYSTEMS = {
     path: '/water-outages/sattahip',
     showPipeline: true,
     showImpact: true,
+    showAnnounced: true,
   },
   pattaya: {
     id: 'pattaya',
@@ -19,6 +21,7 @@ export const OUTAGE_SYSTEMS = {
     path: '/water-outages/pattaya',
     showPipeline: false,
     showImpact: false,
+    showAnnounced: false,
   },
 }
 
