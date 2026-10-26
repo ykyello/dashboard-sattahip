@@ -4,6 +4,7 @@ import {
 } from 'recharts'
 import { supabase } from '../../lib/supabase'
 import { computeKpis, topPipelines, topDmaByFrequency } from '../../lib/outageStats'
+import { getOutageSystem } from '../../lib/outageSystems'
 
 const MONTHS_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
 const YEAR_COLORS = ['#1e40af', '#93c5fd', '#0d9488', '#f59e0b', '#8b5cf6']
@@ -75,20 +76,31 @@ function RankList({ title, rows, unit = 'ครั้ง' }) {
 }
 
 // ─────────────────────────────────────────────────────────
-export default function OutageDashboardTab({ refreshKey }) {
+// system: 'sattahip' | 'pattaya'
+export default function OutageDashboardTab({ system, refreshKey }) {
+  const cfg = getOutageSystem(system)
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
   const [year, setYear] = useState('all')
 
-  useEffect(() => { fetchData() }, [refreshKey])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchData() }, [refreshKey, system])
 
   async function fetchData() {
+    // ไม่รู้ระบบ → ไม่ดึงข้อมูลเลย (กันข้อมูลสองระบบปนกัน)
+    if (!cfg) {
+      setEvents([])
+      setLoadError('ไม่พบระบบเหตุการณ์หยุดจ่ายน้ำ')
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setLoadError(null)
     const { data, error } = await supabase
       .from('water_outage_events')
       .select('*, water_outage_event_dma ( dma ( id, dma_code, dma_name ) )')
+      .eq('system_type', cfg.id)
       .order('start_at', { ascending: true })
     if (error) {
       setLoadError(error.message)
@@ -357,16 +369,16 @@ export default function OutageDashboardTab({ refreshKey }) {
         </div>
       </div>
 
-      {/* ── Rankings ── */}
+      {/* ── Rankings (แสดงเฉพาะอันดับที่ระบบนี้มีข้อมูล) ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <RankList title="เส้นท่อที่เกิดเหตุบ่อย" rows={pipelineRank} />
-        <RankList title="DMA ที่ได้รับผลกระทบบ่อย" rows={dmaRank} />
-        <RankList title="ขนาดท่อที่เกิดเหตุบ่อย" rows={sizeRank} />
+        {cfg.showPipeline && <RankList title="เส้นท่อที่เกิดเหตุบ่อย" rows={pipelineRank} />}
+        {cfg.showImpact && <RankList title="DMA ที่ได้รับผลกระทบบ่อย" rows={dmaRank} />}
+        {cfg.showPipeline && <RankList title="ขนาดท่อที่เกิดเหตุบ่อย" rows={sizeRank} />}
         <RankList title="สถานที่เกิดซ้ำ (2 ครั้งขึ้นไป)" rows={repeatRank} />
       </div>
       <p className="text-xs text-slate-400">
-        DMA นับทุกเหตุการณ์ที่กระทบ DMA นั้น (เหตุการณ์ที่กระทบทุก DMA จะถูกนับให้ทุก DMA)
-        · สถานที่เกิดซ้ำจับจากชื่อสถานที่ เนื่องจากข้อมูลส่วนใหญ่ยังไม่มีพิกัด
+        {cfg.showImpact && 'DMA นับทุกเหตุการณ์ที่กระทบ DMA นั้น (เหตุการณ์ที่กระทบทุก DMA จะถูกนับให้ทุก DMA) · '}
+        สถานที่เกิดซ้ำจับจากชื่อสถานที่ เนื่องจากข้อมูลส่วนใหญ่ยังไม่มีพิกัด
       </p>
     </div>
   )

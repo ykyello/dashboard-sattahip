@@ -136,13 +136,10 @@ function TabMonthly() {
 // ─────────────────────────────────────────────────────────
 function TabReturns() {
   const [annualData,   setAnnualData]   = useState([])
-  const [monthlyData,  setMonthlyData]  = useState([])
   const [loading,      setLoading]      = useState(true)
-  const [subTab,       setSubTab]       = useState('overview')  // overview | monthly | manage
+  const [subTab,       setSubTab]       = useState('overview')  // overview | manage
   // ปีสัญญาที่เลือกดู (overview)
   const [selectedYearNo, setSelectedYearNo] = useState(null)   // null = แสดงทุกปี
-  // ปีสัญญาที่เลือกสำหรับ monthly
-  const [monthlyYearNo, setMonthlyYearNo]   = useState(null)
   const [editModal,    setEditModal]    = useState(null)
   const [editForm,     setEditForm]     = useState({})
   const [saving,       setSaving]       = useState(false)
@@ -154,17 +151,8 @@ function TabReturns() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [{ data: a }, { data: m }] = await Promise.all([
-      supabase.from('lease_returns').select('*').order('year_no'),
-      supabase.from('lease_returns_monthly').select('*').order('year_be').order('month'),
-    ])
+    const { data: a } = await supabase.from('lease_returns').select('*').order('year_no')
     setAnnualData(a || [])
-    setMonthlyData(m || [])
-    // default monthly year_no = ปีสัญญาล่าสุดที่มีข้อมูล
-    if (m && m.length > 0) {
-      const latestYearNo = m.reduce((max, r) => Math.max(max, r.year_no), 0)
-      setMonthlyYearNo(prev => prev ?? latestYearNo)
-    }
     setLoading(false)
   }, [])
 
@@ -185,22 +173,6 @@ function TabReturns() {
   const yearsWithData = confirmedRows.length
   const yearsNoData   = annualData.filter(r => r.actual === null).length
 
-  // ── ปีสัญญาที่มีข้อมูลรายเดือน (สำหรับ dropdown monthly) ──
-  const monthlyYearNos = [...new Set(monthlyData.map(r => r.year_no))].sort((a, b) => b - a)
-  const selMonthlyYearNo = monthlyYearNo || (monthlyYearNos[0] ?? null)
-
-  // กรองรายเดือนตามปีสัญญาที่เลือก (มี.ค.–ก.พ.)
-  const monthlyRows = monthlyData
-    .filter(r => r.year_no === selMonthlyYearNo)
-    .sort((a, b) => {
-      // เรียงตามรอบ มี.ค.(3)–ก.พ.(2): เดือน 3–12 ก่อน แล้ว 1–2
-      const orderA = a.month >= 3 ? a.month : a.month + 12
-      const orderB = b.month >= 3 ? b.month : b.month + 12
-      if (a.year_be !== b.year_be) return a.year_be - b.year_be
-      return orderA - orderB
-    })
-  const monthlyTotal = monthlyRows.reduce((s, r) => s + Number(r.amount), 0)
-
   // ── กรอง annualData ตาม selectedYearNo (overview) ────────
   const filteredAnnual = selectedYearNo
     ? annualData.filter(r => r.year_no === selectedYearNo)
@@ -214,9 +186,6 @@ function TabReturns() {
   const overviewLabel = selectedAnnualRow
     ? `ปีที่ ${selectedAnnualRow.year_no} (มี.ค.${selectedAnnualRow.start_be} – ก.พ.${selectedAnnualRow.start_be + 1})`
     : 'ทุกปี (ปีที่ 1–30)'
-  const monthlyContractLabel = selMonthlyYearNo && annualData.find(r => r.year_no === selMonthlyYearNo)
-    ? (() => { const row = annualData.find(r => r.year_no === selMonthlyYearNo); return `ปีที่ ${row.year_no} (มี.ค.${row.start_be} – ก.พ.${row.start_be + 1})` })()
-    : ''
 
   // ── save annual edit ────────────────────────────────────
   async function saveAnnualEdit() {
@@ -277,7 +246,6 @@ function TabReturns() {
 
   const subTabs = [
     { id: 'overview', label: 'ภาพรวมรายปี' },
-    { id: 'monthly',  label: 'รายละเอียดรายเดือน' },
     { id: 'manage',   label: 'จัดการข้อมูล' },
   ]
 
@@ -656,117 +624,6 @@ function TabReturns() {
               โดยในช่วงเวลาดังกล่าวแสดงเฉพาะผลตอบแทนขั้นต่ำตามสัญญาเพื่อใช้อ้างอิงตามเงื่อนไขสัญญา
             </p>
           </div>
-        </div>
-      )}
-
-      {/* ── รายละเอียดรายเดือน ──────────────────────────── */}
-      {subTab === 'monthly' && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-sm text-slate-600 font-medium whitespace-nowrap">ปีสัญญา:</span>
-            <select
-              value={selMonthlyYearNo ?? ''}
-              onChange={e => setMonthlyYearNo(Number(e.target.value))}
-              className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700
-                         focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[300px]"
-            >
-              {monthlyYearNos.map(yn => {
-                const row = annualData.find(r => r.year_no === yn)
-                return (
-                  <option key={yn} value={yn}>
-                    ปีที่ {yn}{row ? ` — มี.ค.${row.start_be} – ก.พ.${row.start_be + 1}` : ''}
-                  </option>
-                )
-              })}
-            </select>
-          </div>
-
-          {monthlyRows.length === 0 ? (
-            <div className="flex items-center justify-center h-40 bg-white rounded-xl border border-slate-200">
-              <p className="text-slate-400 text-sm">ไม่มีข้อมูลรายเดือนสำหรับ{monthlyContractLabel}</p>
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                <div className="bg-white rounded-xl border border-slate-200 p-4">
-                  <p className="text-xs text-slate-500 mb-1">รายได้รวม — {monthlyContractLabel}</p>
-                  <p className="text-xl font-semibold text-slate-800">{fmt(monthlyTotal, 2)}</p>
-                  <p className="text-xs text-slate-400 mt-1">บาท</p>
-                </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-4">
-                  <p className="text-xs text-slate-500 mb-1">จำนวนเดือนที่มีข้อมูล</p>
-                  <p className="text-xl font-semibold text-slate-800">{monthlyRows.length}</p>
-                  <p className="text-xs text-slate-400 mt-1">เดือน</p>
-                </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-4">
-                  <p className="text-xs text-slate-500 mb-1">เฉลี่ยต่อเดือน</p>
-                  <p className="text-xl font-semibold text-slate-800">{fmt(monthlyTotal / monthlyRows.length, 2)}</p>
-                  <p className="text-xs text-slate-400 mt-1">บาท/เดือน</p>
-                </div>
-              </div>
-
-              {/* mini bar chart */}
-              <div className="bg-white rounded-xl border border-slate-200 p-5">
-                <p className="text-sm font-medium text-slate-700 mb-3">
-                  กราฟรายเดือน — {monthlyContractLabel}
-                </p>
-                <div className="flex items-end gap-1 h-20">
-                  {monthlyRows.map((r, i) => {
-                    const maxA = Math.max(...monthlyRows.map(x => Number(x.amount)))
-                    const h = (Number(r.amount) / maxA) * 100
-                    return (
-                      <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                        <div style={{ height: `${h}%`, minHeight: 2 }}
-                          className="w-full rounded-t bg-emerald-500 opacity-80"
-                          title={`${MONTHS_TH[r.month]} ${r.year_be}: ${fmt(r.amount, 2)} บาท`} />
-                        <span className="text-[9px] text-slate-400 whitespace-nowrap">
-                          {MONTHS_TH[r.month]}{String(r.year_be).slice(2)}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50 border-b border-slate-200">
-                      <tr>
-                        {['เดือน (มี.ค.–ก.พ.)','ผลตอบแทน (บาท)','ยอดสะสม (บาท)','เลขที่อ้างอิง'].map(h => (
-                          <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {(() => {
-                        let cumul = 0
-                        return monthlyRows.map((r, i) => {
-                          cumul += Number(r.amount)
-                          return (
-                            <tr key={i} className="hover:bg-slate-50">
-                              <td className="px-4 py-3 text-slate-700 font-medium">
-                                {MONTHS_TH[r.month]} {r.year_be}
-                              </td>
-                              <td className="px-4 py-3 text-right text-emerald-700 font-medium">{fmt(r.amount, 2)}</td>
-                              <td className="px-4 py-3 text-right text-slate-600">{fmt(cumul, 2)}</td>
-                              <td className="px-4 py-3 text-slate-400 text-xs">{r.ref_doc || '—'}</td>
-                            </tr>
-                          )
-                        })
-                      })()}
-                      <tr className="bg-slate-50 font-semibold border-t-2 border-slate-200">
-                        <td className="px-4 py-3 text-slate-700">รวม</td>
-                        <td className="px-4 py-3 text-right text-slate-800">{fmt(monthlyTotal, 2)}</td>
-                        <td className="px-4 py-3 text-right text-slate-400">—</td>
-                        <td />
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </>
-          )}
         </div>
       )}
 

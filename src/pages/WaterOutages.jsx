@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { isAdmin } from '../lib/permissions'
+import { getOutageSystem } from '../lib/outageSystems'
 import OutageFormModal from '../components/outages/OutageFormModal'
 import OutageHistoryTab from '../components/outages/OutageHistoryTab'
 import OutageDashboardTab from '../components/outages/OutageDashboardTab'
@@ -12,7 +13,9 @@ const TABS = [
   { id: 'history', label: 'ตารางประวัติ' },
 ]
 
-export default function WaterOutages() {
+// system: 'sattahip' | 'pattaya' — กำหนดจาก route ใน MainLayout
+export default function WaterOutages({ system }) {
+  const cfg = getOutageSystem(system)
   const [tab, setTab] = useState('dashboard')
   const [admin, setAdmin] = useState(false)
   const [showForm, setShowForm] = useState(false)
@@ -37,6 +40,15 @@ export default function WaterOutages() {
   function handleSaved() {
     setShowForm(false)
     setRefreshKey((k) => k + 1) // ส่งสัญญาณให้ tab ที่ active fetch ใหม่
+  }
+
+  // กันกรณี route ส่งค่าระบบผิด — ไม่แสดงข้อมูลใดๆ ดีกว่าแสดงข้อมูลปนกัน
+  if (!cfg) {
+    return (
+      <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
+        ไม่พบระบบเหตุการณ์หยุดจ่ายน้ำ "{String(system)}"
+      </div>
+    )
   }
 
   return (
@@ -72,17 +84,24 @@ export default function WaterOutages() {
         )}
       </div>
 
-      {tab === 'dashboard' && <OutageDashboardTab refreshKey={refreshKey} />}
+      {tab === 'dashboard' && <OutageDashboardTab system={system} refreshKey={refreshKey} />}
       {tab === 'map' && (
         <div className="text-sm text-slate-400 bg-white rounded-xl border border-slate-200 p-8 text-center">
           OutageMapTab — พัฒนาในขั้นถัดไป (react-leaflet, marker/heatmap toggle จาก locationUtils.js)
         </div>
       )}
       {tab === 'history' && (
-        <OutageHistoryTab admin={admin} refreshKey={refreshKey} onEdit={openEdit} />
+        <OutageHistoryTab system={system} admin={admin} refreshKey={refreshKey} onEdit={openEdit} />
       )}
 
-      {showForm && <OutageFormModal event={editEvent} onClose={() => setShowForm(false)} onSaved={handleSaved} />}
+      {showForm && (
+        <OutageFormModal
+          system={system}
+          event={editEvent}
+          onClose={() => setShowForm(false)}
+          onSaved={handleSaved}
+        />
+      )}
     </div>
   )
 }

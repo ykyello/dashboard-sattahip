@@ -5,6 +5,7 @@ import LocationPicker from './LocationPicker'
 import { formatVariance } from '../../lib/outageStats'
 import DateInput from '../ui/DateInput'
 import TimeInput from '../ui/TimeInput'
+import { getOutageSystem } from '../../lib/outageSystems'
 
 const CAUSE_OPTIONS = ['ท่อแตก', 'ไฟดับ', 'ซ่อมบำรุง', 'งานก่อสร้าง', 'อื่นๆ']
 const PIPE_TYPE_OPTIONS = ['PVC', 'HDPE', 'PE', 'AC', 'Steel', 'อื่นๆ']
@@ -40,8 +41,24 @@ function toDateTime(dateStr, timeStr) {
   return new Date(`${dateStr}T${timeStr}:00`)
 }
 
-export default function OutageFormModal({ event, onClose, onSaved }) {
-  const [form, setForm] = useState(emptyForm)
+// system: 'sattahip' | 'pattaya'
+export default function OutageFormModal({ system, event, onClose, onSaved }) {
+  const cfg = getOutageSystem(system)
+  // ระบบที่ไม่มีข้อมูลเส้นท่อ: ห้ามใช้ค่าเริ่มต้น 'PVC' ไม่งั้นทุกรายการจะถูกบันทึกเป็น PVC
+  const initialForm = cfg?.showPipeline ? emptyForm : { ...emptyForm, pipe_type: '' }
+
+  // หมายเลขหัวข้อเรียงใหม่อัตโนมัติตามหัวข้อที่แสดงจริง
+  const sectionKeys = [
+    'time',
+    'location',
+    cfg?.showPipeline && 'pipeline',
+    'cause',
+    cfg?.showImpact && 'impact',
+    'docs',
+  ].filter(Boolean)
+  const no = (key) => sectionKeys.indexOf(key) + 1
+
+  const [form, setForm] = useState(initialForm)
   const [dmaList, setDmaList] = useState([])
   const [files, setFiles] = useState([])
   const [saving, setSaving] = useState(false)
@@ -76,11 +93,12 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
       })
       setDmaList(event.dma_list || [])
     } else {
-      setForm(emptyForm)
+      setForm(initialForm)
       setDmaList([])
     }
     setFiles([])
     setError(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event])
 
   function set(field, val) {
@@ -106,6 +124,8 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
   async function handleSave(e) {
     e.preventDefault()
     setError(null)
+
+    if (!cfg) return setError('ไม่พบระบบเหตุการณ์หยุดจ่ายน้ำ — ไม่สามารถบันทึกได้')
 
     // บังคับเฉพาะวันที่เกิดเหตุ — ถ้าไม่กรอกเวลา จะบันทึกเป็น 00:00 ไว้ก่อน
     if (!form.event_date) return setError('กรุณากรอกวันที่เกิดเหตุ')
@@ -138,12 +158,13 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
       location_name: form.location_name || null,
       latitude: hasCoords ? Number(form.latitude) : null,
       longitude: hasCoords ? Number(form.longitude) : null,
-      pipeline_line: form.pipeline_line || null,
-      pipe_size: pipeSize,
-      pipe_type: form.pipe_type || null,
+      // ระบบที่ไม่มีหัวข้อเส้นท่อ/ผลกระทบ บันทึกเป็น null เสมอ
+      pipeline_line: cfg.showPipeline ? form.pipeline_line || null : null,
+      pipe_size: cfg.showPipeline ? pipeSize : null,
+      pipe_type: cfg.showPipeline ? form.pipe_type || null : null,
       cause: form.cause,
-      affected_area: form.affected_area || null,
-      affected_users: form.affected_users !== '' ? Number(form.affected_users) : null,
+      affected_area: cfg.showImpact ? form.affected_area || null : null,
+      affected_users: cfg.showImpact && form.affected_users !== '' ? Number(form.affected_users) : null,
       notes: form.notes || null,
       updated_at: new Date().toISOString(),
     }
@@ -152,11 +173,13 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
     let saveError
 
     if (eventId) {
+      // แก้ไข: ไม่ส่ง system_type → รายการย้ายข้ามระบบไม่ได้
       ;({ error: saveError } = await supabase.from('water_outage_events').update(payload).eq('id', eventId))
     } else {
+      // เพิ่มใหม่: ระบุระบบชัดเจน (ไม่พึ่ง default ของฐานข้อมูล)
       const { data, error: insertError } = await supabase
         .from('water_outage_events')
-        .insert([payload])
+        .insert([{ ...payload, system_type: cfg.id }])
         .select('id')
         .single()
       saveError = insertError
@@ -170,9 +193,12 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
     }
 
     // sync ความสัมพันธ์ DMA: ลบของเดิมแล้ว insert ใหม่ (ข้ามการ insert ถ้าไม่ได้เลือก DMA)
-    await supabase.from('water_outage_event_dma').delete().eq('event_id', eventId)
-    if (dmaList.length > 0) {
-      await supabase.from('water_outage_event_dma').insert(dmaList.map((d) => ({ event_id: eventId, dma_id: d.id })))
+    // เฉพาะระบบที่มีหัวข้อผลกระทบ — ระบบอื่นไม่แตะตาราง DMA เลย
+    if (cfg.showImpact) {
+      await supabase.from('water_outage_event_dma').delete().eq('event_id', eventId)
+      if (dmaList.length > 0) {
+        await supabase.from('water_outage_event_dma').insert(dmaList.map((d) => ({ event_id: eventId, dma_id: d.id })))
+      }
     }
 
     // อัปโหลดไฟล์แนบใหม่ (ถ้ามี) — ไฟล์เดิมยังอยู่ ไฟล์ใหม่ถูกเพิ่มเข้าไป
@@ -219,7 +245,7 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
 
           {/* 1. วันเวลา */}
           <section className="space-y-3">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">1. วันเวลา</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{no('time')}. วันเวลา</p>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs text-slate-500 mb-1">วันที่เกิดเหตุ *</label>
@@ -283,7 +309,7 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
 
           {/* 2. จุดเกิดเหตุ */}
           <section className="space-y-3">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">2. จุดเกิดเหตุ</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{no('location')}. จุดเกิดเหตุ</p>
             <div>
               <label className="block text-xs text-slate-500 mb-1">สถานที่เกิดเหตุ / จุดที่ท่อแตก</label>
               <input
@@ -325,9 +351,10 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
             </div>
           </section>
 
-          {/* 3. ระบบท่อ */}
+          {/* ข้อมูลเส้นท่อ (เฉพาะระบบที่ showPipeline) */}
+          {cfg?.showPipeline && (
           <section className="space-y-3">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">3. ข้อมูลเส้นท่อ</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{no('pipeline')}. ข้อมูลเส้นท่อ</p>
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs text-slate-500 mb-1">เส้นท่อ</label>
@@ -380,10 +407,11 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
               </div>
             </div>
           </section>
+          )}
 
-          {/* 4. สาเหตุ */}
+          {/* สาเหตุ */}
           <section className="space-y-3">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">4. สาเหตุ</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{no('cause')}. สาเหตุ</p>
             <select
               value={form.cause}
               onChange={(e) => set('cause', e.target.value)}
@@ -397,9 +425,10 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
             </select>
           </section>
 
-          {/* 5. ผลกระทบ */}
+          {/* ผลกระทบ (เฉพาะระบบที่ showImpact) */}
+          {cfg?.showImpact && (
           <section className="space-y-3">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">5. ผลกระทบ</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{no('impact')}. ผลกระทบ</p>
             <div>
               <label className="block text-xs text-slate-500 mb-1">พื้นที่ได้รับผลกระทบ</label>
               <input
@@ -424,10 +453,11 @@ export default function OutageFormModal({ event, onClose, onSaved }) {
               <DmaMultiSelect value={dmaList} onChange={setDmaList} />
             </div>
           </section>
+          )}
 
-          {/* 6. เอกสารและหมายเหตุ */}
+          {/* เอกสารและหมายเหตุ */}
           <section className="space-y-3">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">6. เอกสารและหมายเหตุ</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{no('docs')}. เอกสารและหมายเหตุ</p>
             <div>
               <label className="block text-xs text-slate-500 mb-1">รูปภาพ/ไฟล์ประกาศหยุดจ่ายน้ำ</label>
               <input

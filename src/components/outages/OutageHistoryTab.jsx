@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../../lib/supabase'
+import { getOutageSystem } from '../../lib/outageSystems'
 
 const CAUSE_OPTIONS = ['ท่อแตก', 'ไฟดับ', 'ซ่อมบำรุง', 'งานก่อสร้าง', 'อื่นๆ']
 const PAGE_SIZE = 20
@@ -24,11 +25,12 @@ function fmtMin(min) {
 }
 
 // รายการที่ยังต้องเติมข้อมูล (ส่วนใหญ่คือข้อมูลนำเข้าจาก Excel)
-function missingFields(e) {
+// ตรวจ DMA เฉพาะระบบที่มีหัวข้อผลกระทบ
+function missingFields(e, cfg) {
   const miss = []
   if (e.latitude === null || e.longitude === null) miss.push('พิกัด')
   if (e.announced_duration_min === null) miss.push('ระยะเวลาประกาศ')
-  if (e.dma_list.length === 0) miss.push('DMA')
+  if (cfg.showImpact && e.dma_list.length === 0) miss.push('DMA')
   return miss
 }
 
@@ -41,7 +43,9 @@ const CAUSE_STYLE = {
 }
 
 // ─────────────────────────────────────────────────────────
-export default function OutageHistoryTab({ admin, refreshKey, onEdit }) {
+// system: 'sattahip' | 'pattaya'
+export default function OutageHistoryTab({ system, admin, refreshKey, onEdit }) {
+  const cfg = getOutageSystem(system)
   const [events, setEvents] = useState([])
   const [allDma, setAllDma] = useState([])
   const [loading, setLoading] = useState(true)
@@ -57,9 +61,17 @@ export default function OutageHistoryTab({ admin, refreshKey, onEdit }) {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
-  useEffect(() => { fetchData() }, [refreshKey])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchData() }, [refreshKey, system])
 
   async function fetchData() {
+    // ไม่รู้ระบบ → ไม่ดึงข้อมูลเลย (กันข้อมูลสองระบบปนกัน)
+    if (!cfg) {
+      setEvents([])
+      setLoadError('ไม่พบระบบเหตุการณ์หยุดจ่ายน้ำ')
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setLoadError(null)
     const [evRes, dmaRes] = await Promise.all([
@@ -70,8 +82,11 @@ export default function OutageHistoryTab({ admin, refreshKey, onEdit }) {
           water_outage_event_dma ( dma ( id, dma_code, dma_name ) ),
           water_outage_documents ( id, file_name, file_url, file_type, file_size )
         `)
+        .eq('system_type', cfg.id)
         .order('start_at', { ascending: false }),
-      supabase.from('dma').select('id, dma_code, dma_name').eq('active', true),
+      cfg.showImpact
+        ? supabase.from('dma').select('id, dma_code, dma_name').eq('active', true)
+        : Promise.resolve({ data: [] }),
     ])
 
     if (evRes.error) {
@@ -101,23 +116,33 @@ export default function OutageHistoryTab({ admin, refreshKey, onEdit }) {
     return [...set].sort((a, b) => b - a)
   }, [events])
 
-  const incompleteCount = useMemo(() => events.filter((e) => missingFields(e).length > 0).length, [events])
+  const incompleteCount = useMemo(
+    () => (cfg ? events.filter((e) => missingFields(e, cfg).length > 0).length : 0),
+    [events, cfg]
+  )
 
   const filtered = useMemo(() => {
+    if (!cfg) return []
     const q = search.trim().toLowerCase()
     return events.filter((e) => {
       if (year !== 'all' && new Date(e.start_at).getFullYear() + 543 !== Number(year)) return false
       if (cause !== 'all' && e.cause !== cause) return false
-      if (dmaId !== 'all' && !e.dma_list.some((d) => d.id === dmaId)) return false
-      if (onlyIncomplete && missingFields(e).length === 0) return false
+      if (cfg.showImpact && dmaId !== 'all' && !e.dma_list.some((d) => d.id === dmaId)) return false
+      if (onlyIncomplete && missingFields(e, cfg).length === 0) return false
       if (q) {
-        const hay = [e.location_name, e.pipeline_line, e.affected_area, e.pipe_type, e.notes]
+        const hay = [
+          e.location_name,
+          cfg.showPipeline ? e.pipeline_line : null,
+          cfg.showImpact ? e.affected_area : null,
+          cfg.showPipeline ? e.pipe_type : null,
+          e.notes,
+        ]
           .filter(Boolean).join(' ').toLowerCase()
         if (!hay.includes(q)) return false
       }
       return true
     })
-  }, [events, search, year, cause, dmaId, onlyIncomplete])
+  }, [events, cfg, search, year, cause, dmaId, onlyIncomplete])
 
   // กลับไปหน้า 1 เมื่อเปลี่ยนตัวกรอง
   useEffect(() => { setPage(1) }, [search, year, cause, dmaId, onlyIncomplete])
@@ -174,7 +199,7 @@ export default function OutageHistoryTab({ admin, refreshKey, onEdit }) {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="ค้นหาสถานที่ เส้นท่อ ตำบล หมายเหตุ"
+            placeholder={cfg?.showPipeline ? 'ค้นหาสถานที่ เส้นท่อ ตำบล หมายเหตุ' : 'ค้นหาสถานที่ หมายเหตุ'}
             className={`${selectCls} flex-1 min-w-[200px]`}
           />
           <select value={year} onChange={(e) => setYear(e.target.value)} className={selectCls}>
@@ -185,10 +210,12 @@ export default function OutageHistoryTab({ admin, refreshKey, onEdit }) {
             <option value="all">ทุกสาเหตุ</option>
             {CAUSE_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
-          <select value={dmaId} onChange={(e) => setDmaId(e.target.value)} className={selectCls}>
-            <option value="all">ทุก DMA</option>
-            {allDma.map((d) => <option key={d.id} value={d.id}>{d.dma_name || d.dma_code}</option>)}
-          </select>
+          {cfg?.showImpact && (
+            <select value={dmaId} onChange={(e) => setDmaId(e.target.value)} className={selectCls}>
+              <option value="all">ทุก DMA</option>
+              {allDma.map((d) => <option key={d.id} value={d.id}>{d.dma_name || d.dma_code}</option>)}
+            </select>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -228,8 +255,12 @@ export default function OutageHistoryTab({ admin, refreshKey, onEdit }) {
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">วันที่</th>
                   <th className="px-4 py-3 text-left font-medium">สถานที่</th>
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">สาเหตุ</th>
-                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">เส้นท่อ / ท่อ</th>
-                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">DMA</th>
+                  {cfg.showPipeline && (
+                    <th className="px-4 py-3 text-left font-medium whitespace-nowrap">เส้นท่อ / ท่อ</th>
+                  )}
+                  {cfg.showImpact && (
+                    <th className="px-4 py-3 text-left font-medium whitespace-nowrap">DMA</th>
+                  )}
                   <th className="px-4 py-3 text-right font-medium whitespace-nowrap">ประกาศ</th>
                   <th className="px-4 py-3 text-right font-medium whitespace-nowrap">ซ่อมจริง</th>
                   {admin && <th className="px-4 py-3" />}
@@ -237,7 +268,7 @@ export default function OutageHistoryTab({ admin, refreshKey, onEdit }) {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {pageRows.map((e) => {
-                  const miss = missingFields(e)
+                  const miss = missingFields(e, cfg)
                   const pipe = [e.pipe_type, e.pipe_size ? `Ø${e.pipe_size}` : null].filter(Boolean).join(' ')
                   return (
                     <tr key={e.id} className="hover:bg-slate-50 align-top">
@@ -249,7 +280,7 @@ export default function OutageHistoryTab({ admin, refreshKey, onEdit }) {
                       </td>
                       <td className="px-4 py-3 min-w-[220px]">
                         <p className="text-slate-700">{e.location_name}</p>
-                        {e.affected_area && <p className="text-xs text-slate-400">{e.affected_area}</p>}
+                        {cfg.showImpact && e.affected_area && <p className="text-xs text-slate-400">{e.affected_area}</p>}
                         {miss.length > 0 && (
                           <p className="text-xs text-amber-600 mt-1">ยังไม่มี: {miss.join(', ')}</p>
                         )}
@@ -269,11 +300,15 @@ export default function OutageHistoryTab({ admin, refreshKey, onEdit }) {
                           {e.cause}
                         </span>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-slate-600">
-                        <p>{e.pipeline_line || <span className="text-slate-300">—</span>}</p>
-                        {pipe && <p className="text-xs text-slate-400">{pipe}</p>}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 text-xs min-w-[90px]">{dmaLabel(e.dma_list)}</td>
+                      {cfg.showPipeline && (
+                        <td className="px-4 py-3 whitespace-nowrap text-slate-600">
+                          <p>{e.pipeline_line || <span className="text-slate-300">—</span>}</p>
+                          {pipe && <p className="text-xs text-slate-400">{pipe}</p>}
+                        </td>
+                      )}
+                      {cfg.showImpact && (
+                        <td className="px-4 py-3 text-slate-600 text-xs min-w-[90px]">{dmaLabel(e.dma_list)}</td>
+                      )}
                       <td className="px-4 py-3 text-right whitespace-nowrap text-slate-600">
                         {fmtMin(e.announced_duration_min)}
                       </td>
@@ -358,7 +393,9 @@ export default function OutageHistoryTab({ admin, refreshKey, onEdit }) {
               {fmtDate(deleteTarget.start_at)} · {deleteTarget.location_name}
             </p>
             <p className="text-sm text-slate-500 mb-5">
-              ข้อมูล การผูก DMA และไฟล์แนบทั้งหมดจะถูกลบและไม่สามารถกู้คืนได้
+              {cfg?.showImpact
+                ? 'ข้อมูล การผูก DMA และไฟล์แนบทั้งหมดจะถูกลบและไม่สามารถกู้คืนได้'
+                : 'ข้อมูลและไฟล์แนบทั้งหมดจะถูกลบและไม่สามารถกู้คืนได้'}
             </p>
             <div className="flex gap-3">
               <button

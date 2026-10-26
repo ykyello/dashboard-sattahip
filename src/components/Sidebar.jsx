@@ -1,5 +1,7 @@
-import { NavLink, useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { OUTAGE_SYSTEMS } from '../lib/outageSystems'
 
 const menuItems = [
   {
@@ -74,12 +76,16 @@ const menuItems = [
       </svg>
     ),
   },
-  // ── เพิ่มใหม่: เหตุการณ์หยุดจ่ายน้ำ (ไม่ adminOnly — guest ดู dashboard/แผนที่/ตารางได้ แค่เขียนไม่ได้ ซึ่ง RLS บังคับจริงอยู่แล้ว) ──
+  // ── เหตุการณ์หยุดจ่ายน้ำ: เมนูหลักแบบขยาย/ยุบ มีเมนูย่อย 2 ระบบ ──
+  // (ไม่ adminOnly — guest ดู dashboard/แผนที่/ตารางได้ แค่เขียนไม่ได้ ซึ่ง RLS บังคับจริงอยู่แล้ว)
   {
-    path: '/water-outages',
-    end: false,
+    path: '/water-outages',          // ใช้เป็น prefix ตรวจว่าอยู่ในกลุ่มนี้หรือไม่
     label: 'เหตุการณ์หยุดจ่ายน้ำ',
     adminOnly: false,
+    children: [
+      { path: OUTAGE_SYSTEMS.sattahip.path, label: OUTAGE_SYSTEMS.sattahip.label },
+      { path: OUTAGE_SYSTEMS.pattaya.path,  label: OUTAGE_SYSTEMS.pattaya.label },
+    ],
     icon: (
       <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -114,6 +120,70 @@ const menuItems = [
   },
 ]
 
+// อยู่ในกลุ่มเมนูหรือไม่ (เช่น /water-outages/pattaya อยู่ในกลุ่ม /water-outages)
+const inGroup = (pathname, groupPath) =>
+  pathname === groupPath || pathname.startsWith(groupPath + '/')
+
+// ── เมนูหลักที่มีเมนูย่อย (ขยาย/ยุบได้) ─────────────────────
+function MenuGroup({ item, onNavigate }) {
+  const location = useLocation()
+  const active   = inGroup(location.pathname, item.path)
+  const [expanded, setExpanded] = useState(active)
+
+  // เปิดหน้าเมนูย่อยเมื่อไร (รวมเข้าจาก URL ตรง) → ขยายค้างไว้
+  useEffect(() => {
+    if (active) setExpanded(true)
+  }, [active])
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        aria-expanded={expanded}
+        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors duration-150 ${
+          active
+            ? 'text-white hover:bg-blue-900'
+            : 'text-blue-300 hover:bg-blue-900 hover:text-white'
+        }`}
+      >
+        {item.icon}
+        <span className="flex-1 text-left leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
+          {item.label}
+        </span>
+        <svg
+          className={`w-4 h-4 flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="mt-0.5 ml-5 pl-3 border-l border-blue-900 space-y-0.5">
+          {item.children.map(child => (
+            <NavLink
+              key={child.path}
+              to={child.path}
+              end
+              onClick={onNavigate}
+              className={({ isActive }) =>
+                `block px-3 py-2 rounded-lg text-sm leading-snug transition-colors duration-150 ${
+                  isActive
+                    ? 'bg-blue-700 text-white'
+                    : 'text-blue-300 hover:bg-blue-900 hover:text-white'
+                }`
+              }
+            >
+              {child.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── props: open, onClose, onToggle, role ─────────────────
 export default function Sidebar({ open, onClose, role }) {
   const navigate = useNavigate()
@@ -122,6 +192,11 @@ export default function Sidebar({ open, onClose, role }) {
   async function handleLogout() {
     await supabase.auth.signOut()
     navigate('/login')
+  }
+
+  // มือถือ: ปิด drawer เมื่อกดเมนูที่พาไปหน้าอื่น
+  function handleNavigate() {
+    if (window.innerWidth < 768) onClose()
   }
 
   // กรองเมนูตาม role
@@ -156,14 +231,14 @@ export default function Sidebar({ open, onClose, role }) {
         {/* ── Navigation ── */}
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto overflow-x-hidden">
           <p className="text-blue-600 text-xs px-2 mb-2 tracking-widest uppercase whitespace-nowrap">เมนู</p>
-          {visibleItems.map(item => (
+          {visibleItems.map(item => item.children ? (
+            <MenuGroup key={item.path} item={item} onNavigate={handleNavigate} />
+          ) : (
             <NavLink
               key={item.path}
               to={item.path}
               end={item.end}
-              onClick={() => {
-                if (window.innerWidth < 768) onClose()
-              }}
+              onClick={handleNavigate}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors duration-150 ${
                   isActive

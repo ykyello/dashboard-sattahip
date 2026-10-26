@@ -9,7 +9,8 @@ import Contracts       from '../pages/Contracts'
 import AnnualReport    from '../pages/AnnualReport'
 import Assets          from '../pages/Assets'
 import AssetCategories from '../pages/AssetCategories'
-import WaterOutages    from '../pages/WaterOutages'   // ++ เพิ่ม
+import WaterOutages    from '../pages/WaterOutages'
+import { OUTAGE_SYSTEMS } from '../lib/outageSystems'
 
 const pageTitles = {
   '/':                 'Dashboard ภาพรวม',
@@ -20,7 +21,8 @@ const pageTitles = {
   '/annual-report':    'บันทึกผลดำเนินงาน',
   '/assets':           'บัญชีรายการทรัพย์สิน',
   '/asset-categories': 'จัดการประเภททรัพย์สิน',
-  '/water-outages':    'เหตุการณ์หยุดจ่ายน้ำ',        // ++ เพิ่ม
+  [OUTAGE_SYSTEMS.sattahip.path]: OUTAGE_SYSTEMS.sattahip.label,
+  [OUTAGE_SYSTEMS.pattaya.path]:  OUTAGE_SYSTEMS.pattaya.label,
 }
 
 // เส้นทางที่ guest เข้าไม่ได้
@@ -133,7 +135,11 @@ export default function MainLayout({ role }) {
             <Route path="/annual-report"     element={<AnnualReport />} />
             <Route path="/assets"            element={<Assets />} />
             <Route path="/asset-categories"  element={<AssetCategories />} />
-            <Route path="/water-outages"     element={<WaterOutages />} />  {/* ++ เพิ่ม */}
+            {/* เหตุการณ์หยุดจ่ายน้ำ: URL เดิม /water-outages → redirect ไปหน้าสัตหีบ (bookmark เดิมยังใช้ได้)
+                key แยกตามระบบ บังคับให้สร้างหน้าใหม่ทุกครั้งที่สลับเมนู กันข้อมูลระบบหนึ่งค้างบนอีกระบบ */}
+            <Route path="/water-outages"     element={<Navigate to={OUTAGE_SYSTEMS.sattahip.path} replace />} />
+            <Route path={OUTAGE_SYSTEMS.sattahip.path} element={<WaterOutages key="sattahip" system="sattahip" />} />
+            <Route path={OUTAGE_SYSTEMS.pattaya.path}  element={<WaterOutages key="pattaya"  system="pattaya" />} />
           </Routes>
         </main>
 
